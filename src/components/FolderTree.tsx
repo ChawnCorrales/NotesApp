@@ -171,14 +171,16 @@ export function FolderTree() {
         <p className="flex-1 text-[0.68rem] uppercase tracking-wider text-ink-faint">
           Folders
         </p>
+        {/* Distinct from the rows' ＋, which now means "new note". One glyph
+            meaning two things in the same panel is what prompted this. */}
         <button
           type="button"
           aria-label="New folder"
           title="New folder"
           onClick={() => void addFolder(null)}
-          className="rounded px-1.5 text-sm text-ink-faint transition-colors hover:text-candle"
+          className="flex items-center rounded px-1.5 py-0.5 text-ink-faint transition-colors hover:text-candle"
         >
-          ＋
+          <NewFolderIcon />
         </button>
       </div>
 
@@ -405,13 +407,13 @@ function FolderRow({
 
         <span className="flex shrink-0 items-center opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
           <RowButton label={`New note in ${folder.name}`} onClick={() => onAddNote(folder.id)}>
-            ✎
+            ＋
           </RowButton>
           <RowButton
             label={`New subfolder in ${folder.name}`}
             onClick={() => onAddSubfolder(folder.id)}
           >
-            ＋
+            <SubfolderIcon />
           </RowButton>
           <RowButton label={`Rename ${folder.name}`} onClick={() => onStartRename(folder.id)}>
             ✐
@@ -534,6 +536,59 @@ function NoteRow({
   );
 }
 
+/**
+ * Row-control icons.
+ *
+ * Drawn rather than borrowed from Unicode: there is no glyph for "new
+ * subfolder", and the near-miss candidates (✎ ✐ 🗀) are what made New note and
+ * Rename indistinguishable in the first place. `currentColor` keeps them in
+ * step with the row's hover and focus states.
+ */
+
+/** A folder with a right-angle arrow leading into it. */
+function SubfolderIcon() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width="12"
+      height="12"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.3"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M1.6 12.4V3.9a1 1 0 0 1 1-1h3.1l1.4 1.6h6.3a1 1 0 0 1 1 1v6.9a1 1 0 0 1-1 1h-10.8a1 1 0 0 1-1-1Z" />
+      <path d="M6 6.6v3.2h3.5" />
+      <path d="M8.2 8.4 9.9 9.8 8.2 11.2" />
+    </svg>
+  );
+}
+
+/** A folder with a plus, for creating one at the top level. */
+function NewFolderIcon() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width="13"
+      height="13"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.3"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M1.6 12.4V3.9a1 1 0 0 1 1-1h3.1l1.4 1.6h6.3a1 1 0 0 1 1 1v6.9a1 1 0 0 1-1 1h-10.8a1 1 0 0 1-1-1Z" />
+      <path d="M8 6.6v4" />
+      <path d="M6 8.6h4" />
+    </svg>
+  );
+}
+
 function RowButton({
   label,
   onClick,
@@ -549,7 +604,7 @@ function RowButton({
       aria-label={label}
       title={label}
       onClick={onClick}
-      className="rounded px-1 text-xs text-ink-faint transition-colors hover:text-candle"
+      className="inline-flex items-center rounded px-1 text-xs leading-none text-ink-faint transition-colors hover:text-candle"
     >
       {children}
     </button>
