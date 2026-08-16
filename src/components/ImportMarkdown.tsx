@@ -18,7 +18,7 @@ import { useNavigation } from "./navigation-context";
 const ACCEPTED = ".md,.markdown,.txt";
 
 export function ImportMarkdown() {
-  const { campaign, recognizer } = useCampaign();
+  const { campaign } = useCampaign();
   const { navigate } = useNavigation();
 
   const inputRef = useRef<HTMLInputElement>(null);
@@ -42,7 +42,7 @@ export function ImportMarkdown() {
           })),
         );
 
-        const result = await importMarkdownNotes(campaign.id, files, recognizer);
+        const result = await importMarkdownNotes({ campaignId: campaign.id, files });
         setOutcome(result);
 
         // Opening the first note makes the import visibly real, rather than
@@ -56,7 +56,7 @@ export function ImportMarkdown() {
         if (inputRef.current) inputRef.current.value = "";
       }
     },
-    [campaign, recognizer, navigate],
+    [campaign, navigate],
   );
 
   return (

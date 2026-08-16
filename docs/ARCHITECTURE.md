@@ -65,6 +65,39 @@ Two rules keep these portable:
 2. **Named for the user's intent, not the tables.** `getEntityRelationships`
    survives a schema change; `queryRelationshipsBySourceId` does not.
 
+## Request and response contracts
+
+`src/lib/services/contracts.ts` holds the types the boundary is written in. The
+point is that a future `POST /notes` can take the same object the local
+implementation takes today, and return the same one, without a component
+noticing which is answering.
+
+Three rules make that true, and each of them has cost something to learn:
+
+**Every argument list is a JSON body.** Creates take one request object —
+`createNote({ campaignId, title })`, `createEntity({ … })` — not positional
+arguments. More importantly, nothing takes *behaviour*. `reindexCampaign` and
+`restoreNote` used to be handed a built `EntityRecognizer`; an automaton cannot
+be serialised, so those operations could never have been served remotely. They
+now build the recogniser internally from the campaign's own vocabulary.
+
+**Every response survives `JSON.stringify`.** `JsonSafe<T>` states this at the
+type level. The failure it prevents is quiet rather than loud: `JSON.stringify`
+of a `Map` or `Set` is `"{}"`, so returning one does not throw — it arrives
+empty. Two operations were caught doing exactly this and now return arrays:
+`getNoteTitles` returns `NoteSummary[]`, and `traverse`/`getNeighbourhood`
+return `ID[]`. Callers that want lookup build a `Map` themselves, on their side
+of the boundary. `tests/integration/contracts.test.ts` round-trips every public
+response through JSON, which catches what a cast or an `any` slips past the
+compiler.
+
+**Refusals are values, not exceptions.** Operations that can legitimately be
+refused return `Result<T>` — `moveFolder` rejecting a cycle, `deleteEntityType`
+rejecting a section that still holds entities. `ServiceError` carries a `code`
+(`not_found` / `conflict` / `invalid`) that maps onto a status code, a message,
+and optional serialisable `details`. Thrown errors stay for genuine bugs, which
+are a 500 rather than a 409.
+
 ## What is deliberately not built yet
 
 Nothing below is implemented. What matters is that no signature has to be

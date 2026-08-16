@@ -98,12 +98,12 @@ export function EntityPage({ entityId }: { entityId: string }) {
 
   const handleAddRelationship = useCallback(async () => {
     if (!entity || !relationTarget) return;
-    await createRelationship(
-      entity.campaignId,
-      entityId,
-      relationTarget,
-      relationType,
-    );
+    await createRelationship({
+      campaignId: entity.campaignId,
+      sourceEntityId: entityId,
+      targetEntityId: relationTarget,
+      relationshipType: relationType,
+    });
     setRelationTarget("");
     setRelationType("");
   }, [entity, entityId, relationTarget, relationType]);

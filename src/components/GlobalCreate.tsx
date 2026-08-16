@@ -43,7 +43,7 @@ export function GlobalCreate() {
   const newNote = useCallback(async () => {
     if (!campaign) return;
     setOpen(false);
-    const note = await createNote(campaign.id);
+    const note = await createNote({ campaignId: campaign.id });
     navigate({ kind: "note", noteId: note.id });
   }, [campaign, navigate]);
 
@@ -56,7 +56,12 @@ export function GlobalCreate() {
   const newSection = useCallback(async () => {
     if (!campaign) return;
     setOpen(false);
-    await createEntityType(campaign.id, "New section", "◇", "concept");
+    await createEntityType({
+      campaignId: campaign.id,
+      name: "New section",
+      icon: "◇",
+      themeKey: "concept",
+    });
     navigate({ kind: "canon" });
   }, [campaign, navigate]);
 

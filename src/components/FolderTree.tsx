@@ -113,7 +113,7 @@ export function FolderTree() {
       }
 
       const result = await moveFolder(item.id, target);
-      if (!result.moved) setNotice(result.reason ?? "That move is not possible.");
+      if (!result.ok) setNotice(result.error.message);
     },
     [dragged],
   );
@@ -131,7 +131,7 @@ export function FolderTree() {
   const addNote = useCallback(
     async (folderId: string) => {
       if (!campaignId) return;
-      const note = await createNote(campaignId, { folderId });
+      const note = await createNote({ campaignId: campaignId, folderId });
       setExpanded((prev) => new Set(prev).add(folderId));
       navigate({ kind: "note", noteId: note.id });
     },
@@ -273,7 +273,7 @@ export function FolderTree() {
               return;
             }
             const result = await moveFolder(request.id, targetId);
-            if (!result.moved) setNotice(result.reason ?? "That move is not possible.");
+            if (!result.ok) setNotice(result.error.message);
           }}
         />
       )}

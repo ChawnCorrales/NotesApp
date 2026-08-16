@@ -18,7 +18,6 @@ import {
   renameEntity,
 } from "@/lib/services";
 import {
-  buildRecognizer,
   createNoteWithText,
   createNpc,
   createTestCampaign,
@@ -60,7 +59,7 @@ describe("aliases", () => {
     expect(await getBacklinks(queen.id)).toHaveLength(0);
 
     await addAlias(queen.id, "Verena");
-    await reindexCampaign(campaign.id, await buildRecognizer(campaign.id));
+    await reindexCampaign(campaign.id);
 
     const backlinks = await getBacklinks(queen.id);
     expect(backlinks.map((n) => n.id)).toEqual([note.id]);
@@ -75,7 +74,7 @@ describe("aliases", () => {
     expect(await getBacklinks(queen.id)).toHaveLength(1);
 
     await removeAlias(aliasRecord!.id);
-    await reindexCampaign(campaign.id, await buildRecognizer(campaign.id));
+    await reindexCampaign(campaign.id);
 
     expect(await getBacklinks(queen.id)).toHaveLength(0);
     // The entity and the note itself are untouched — only the derived index changed.
@@ -111,7 +110,7 @@ describe("renaming an entity", () => {
     const { campaign, npcType, locationType } = fixture;
     const marrow = await createNpc(campaign.id, npcType.id, "Marrow");
     const greyhaven = await createNpc(campaign.id, locationType.id, "Greyhaven");
-    await createRelationship(campaign.id, marrow.id, greyhaven.id, "works in");
+    await createRelationship({ campaignId: campaign.id, sourceEntityId: marrow.id, targetEntityId: greyhaven.id, relationshipType: "works in" });
 
     await renameEntity(marrow.id, "Old Marrow");
 
@@ -130,7 +129,7 @@ describe("renaming an entity", () => {
     const note = await createNoteWithText(campaign.id, "Session 3", "Old Marrow waits.");
 
     await renameEntity(marrow.id, "Old Marrow");
-    await reindexCampaign(campaign.id, await buildRecognizer(campaign.id));
+    await reindexCampaign(campaign.id);
 
     expect((await getBacklinks(marrow.id)).map((n) => n.id)).toEqual([note.id]);
   });
@@ -142,7 +141,7 @@ describe("renaming an entity", () => {
 
     await addAlias(marrow.id, "Marrow");
     await renameEntity(marrow.id, "Old Marrow");
-    await reindexCampaign(campaign.id, await buildRecognizer(campaign.id));
+    await reindexCampaign(campaign.id);
 
     expect((await getBacklinks(marrow.id)).map((n) => n.id)).toEqual([note.id]);
   });
@@ -153,7 +152,7 @@ describe("renaming an entity", () => {
     await createNoteWithText(campaign.id, "Session 1", "Marrow waits.");
 
     await renameEntity(marrow.id, "Bastiona");
-    await reindexCampaign(campaign.id, await buildRecognizer(campaign.id));
+    await reindexCampaign(campaign.id);
 
     expect(await getBacklinks(marrow.id)).toHaveLength(0);
   });
@@ -165,14 +164,14 @@ describe("merging duplicate entities", () => {
     const keep = await createNpc(campaign.id, npcType.id, "Marrow");
     const duplicate = await createNpc(campaign.id, npcType.id, "Old Marrow");
     const greyhaven = await createNpc(campaign.id, locationType.id, "Greyhaven");
-    await createRelationship(campaign.id, duplicate.id, greyhaven.id, "works in");
+    await createRelationship({ campaignId: campaign.id, sourceEntityId: duplicate.id, targetEntityId: greyhaven.id, relationshipType: "works in" });
 
     const note = await createNoteWithText(campaign.id, "S1", "Old Marrow waits.");
     expect((await getBacklinks(duplicate.id)).map((n) => n.id)).toEqual([note.id]);
 
     const { mergeEntities } = await import("@/lib/services");
     await mergeEntities(duplicate.id, keep.id);
-    await reindexCampaign(campaign.id, await buildRecognizer(campaign.id));
+    await reindexCampaign(campaign.id);
 
     expect(await db.entities.get(duplicate.id)).toBeUndefined();
     // The old name survives as an alias, so the text still resolves.
@@ -197,7 +196,7 @@ describe("re-indexing", () => {
     await db.entityMentions.clear();
     expect(await getBacklinks(marrow.id)).toHaveLength(0);
 
-    const rebuilt = await reindexCampaign(campaign.id, await buildRecognizer(campaign.id));
+    const rebuilt = await reindexCampaign(campaign.id);
 
     expect(rebuilt).toBe(3);
     expect(await getBacklinks(marrow.id)).toHaveLength(2);
@@ -213,7 +212,7 @@ describe("re-indexing", () => {
 
     // The GM flags a name they have already been writing about for weeks.
     const marrow = await createNpc(campaign.id, npcType.id, "Marrow");
-    await reindexCampaign(campaign.id, await buildRecognizer(campaign.id));
+    await reindexCampaign(campaign.id);
 
     expect((await getBacklinks(marrow.id)).map((n) => n.id)).toEqual([note.id]);
   });

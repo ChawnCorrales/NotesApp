@@ -13,6 +13,7 @@
 
 import { db } from "../db/db";
 import { listLiveNotes } from "./repository";
+import type { NoteSummary } from "./contracts";
 import type {
   Campaign,
   Entity,
@@ -34,14 +35,14 @@ export async function getNote(noteId: ID): Promise<Note | undefined> {
 }
 
 /**
- * Titles for a campaign's live notes, keyed by id.
+ * Titles for a campaign's live notes.
  *
- * A map rather than a list because every caller is resolving "what is this note
- * called" for something that already holds an id — a task, a tab, a backlink.
+ * An array rather than the Map this started as: a Map serialises to `{}`, so
+ * the wire form has to be a list and callers that want lookup build their own.
  */
-export async function getNoteTitles(campaignId: ID): Promise<Map<ID, string>> {
+export async function getNoteTitles(campaignId: ID): Promise<NoteSummary[]> {
   const notes = await listLiveNotes(campaignId);
-  return new Map(notes.map((n) => [n.id, n.title || "Untitled note"]));
+  return notes.map((n) => ({ noteId: n.id, title: n.title || "Untitled note" }));
 }
 
 /* ---------------------------------------------------------------- folders */

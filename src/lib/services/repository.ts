@@ -27,14 +27,49 @@ import type {
 } from "../db/types";
 import { wouldCreateCycle } from "../folders/tree";
 import {
+  EntityRecognizer,
   filterSuppressed,
   suppressionKey,
   type EntityMatch,
 } from "../entities/recognizer";
+import {
+  fail,
+  ok,
+  type CollectionContents,
+  type CollectionMemberRequest,
+  type CreateEntityRequest,
+  type CreateEntityTypeRequest,
+  type CreateNoteRequest,
+  type CreateRelationshipRequest,
+  type EntityMentionCount,
+  type EntityTypeCount,
+  type ImportMarkdownRequest,
+  type ImportOutcome,
+  type Result,
+  type SuppressMentionRequest,
+  type UnsuppressMentionRequest,
+} from "./contracts";
 import { parseMarkdownDocument } from "../import/markdown";
 import { deriveTasksFromContent } from "../notes/derive";
 
 const EMPTY_SUPPRESSIONS: ReadonlySet<string> = new Set();
+
+/**
+ * Builds the campaign's recogniser from stored data.
+ *
+ * Operations that need recognition build it here rather than accepting one.
+ * An automaton is behaviour, not data — it cannot be sent in a request body,
+ * so an operation that required the caller to supply one could never be served
+ * over HTTP. Building it internally costs a scan of the entity vocabulary,
+ * which is small next to the note pass these operations already perform.
+ */
+async function buildCampaignRecognizer(campaignId: ID): Promise<EntityRecognizer> {
+  const [entities, aliases] = await Promise.all([
+    db.entities.where("campaignId").equals(campaignId).toArray(),
+    db.entityAliases.where("campaignId").equals(campaignId).toArray(),
+  ]);
+  return EntityRecognizer.fromCampaign(entities, aliases);
+}
 
 /* ------------------------------------------------------- indexed queries */
 
@@ -83,18 +118,23 @@ export async function listRecentNotes(campaignId: ID, limit: number): Promise<No
 
 /* ------------------------------------------------------------------ notes */
 
-export async function createNote(
-  campaignId: ID,
-  init: Partial<Pick<Note, "title" | "content" | "contentText" | "folderId">> = {},
-): Promise<Note> {
+/**
+ * A new, empty note.
+ *
+ * Takes one request object like every other create, so the whole argument list
+ * is a JSON body: the server-side shape of this is `POST /notes`. Fields the
+ * store owns — id, timestamps, `syncVersion`, `deletedAt` — are assigned here
+ * and are deliberately not accepted from the caller.
+ */
+export async function createNote(request: CreateNoteRequest): Promise<Note> {
   const now = Date.now();
   const note: Note = {
     id: newId(),
-    campaignId,
-    title: init.title ?? "",
-    content: init.content ?? "",
-    contentText: init.contentText ?? "",
-    folderId: init.folderId ?? null,
+    campaignId: request.campaignId,
+    title: request.title ?? "",
+    content: request.content ?? "",
+    contentText: request.contentText ?? "",
+    folderId: request.folderId ?? null,
     visibility: "gm",
     isLocked: false,
     localOnly: false,
@@ -140,13 +180,11 @@ export async function trashNote(noteId: ID): Promise<void> {
  * against the campaign's *current* entity vocabulary — a name flagged while the
  * note sat in the trash is recognised the moment it comes back.
  */
-export async function restoreNote(
-  noteId: ID,
-  recognizer: { findMatches: (text: string) => EntityMatch[] },
-): Promise<void> {
+export async function restoreNote(noteId: ID): Promise<void> {
   const note = await db.notes.get(noteId);
   if (!note) return;
 
+  const recognizer = await buildCampaignRecognizer(note.campaignId);
   await db.notes.update(noteId, { deletedAt: NOT_DELETED });
   await syncMentionsForNote(noteId, note.campaignId, recognizer.findMatches(note.contentText));
   await syncTasksForNote(noteId, note.campaignId, deriveTasksFromContent(note.content));
@@ -218,16 +256,8 @@ export async function deleteNote(noteId: ID): Promise<void> {
 
 /* ----------------------------------------------------------------- import */
 
-export interface MarkdownFile {
-  name: string;
-  content: string;
-}
-
-export interface ImportOutcome {
-  imported: Note[];
-  /** Files that could not be parsed, kept so the UI can name them. */
-  failed: { name: string; reason: string }[];
-}
+// MarkdownFile and ImportOutcome now live in contracts.ts, with the rest of
+// the shapes that cross the boundary.
 
 /**
  * Imports Markdown files as notes (PRD §19).
@@ -240,11 +270,11 @@ export interface ImportOutcome {
  * lands, which means an import of twenty session logs immediately backlinks
  * every entity the GM has already flagged.
  */
-export async function importMarkdownNotes(
-  campaignId: ID,
-  files: MarkdownFile[],
-  recognizer: { findMatches: (text: string) => EntityMatch[] },
-): Promise<ImportOutcome> {
+export async function importMarkdownNotes({
+  campaignId,
+  files,
+}: ImportMarkdownRequest): Promise<ImportOutcome> {
+  const recognizer = await buildCampaignRecognizer(campaignId);
   const imported: Note[] = [];
   const failed: ImportOutcome["failed"] = [];
 
@@ -252,7 +282,7 @@ export async function importMarkdownNotes(
     try {
       const parsed = parseMarkdownDocument(file.content, file.name);
 
-      const note = await createNote(campaignId, {
+      const note = await createNote({ campaignId: campaignId,
         title: parsed.title,
         content: JSON.stringify(parsed.doc),
         contentText: parsed.text,
@@ -298,10 +328,6 @@ export async function renameFolder(folderId: ID, name: string): Promise<void> {
   await db.folders.update(folderId, { name: trimmed });
 }
 
-export interface MoveFolderResult {
-  moved: boolean;
-  reason?: string;
-}
 
 /**
  * Reparents a folder, refusing moves that would detach a subtree.
@@ -313,10 +339,10 @@ export interface MoveFolderResult {
 export async function moveFolder(
   folderId: ID,
   newParentId: ID | null,
-): Promise<MoveFolderResult> {
+): Promise<Result> {
   const folder = await db.folders.get(folderId);
-  if (!folder) return { moved: false, reason: "That folder no longer exists." };
-  if (folder.parentFolderId === newParentId) return { moved: true };
+  if (!folder) return fail("not_found", "That folder no longer exists.");
+  if (folder.parentFolderId === newParentId) return ok(undefined);
 
   const siblings = await db.folders
     .where("campaignId")
@@ -324,14 +350,11 @@ export async function moveFolder(
     .toArray();
 
   if (wouldCreateCycle(siblings, folderId, newParentId)) {
-    return {
-      moved: false,
-      reason: "A folder cannot be moved inside itself.",
-    };
+    return fail("conflict", "A folder cannot be moved inside itself.");
   }
 
   await db.folders.update(folderId, { parentFolderId: newParentId });
-  return { moved: true };
+  return ok(undefined);
 }
 
 /**
@@ -380,12 +403,12 @@ export async function moveNoteToFolder(
 
 /* --------------------------------------------------------------- entities */
 
-export async function createEntity(
-  campaignId: ID,
-  name: string,
-  entityTypeId: ID,
+export async function createEntity({
+  campaignId,
+  name,
+  entityTypeId,
   description = "",
-): Promise<Entity> {
+}: CreateEntityRequest): Promise<Entity> {
   const now = Date.now();
   const entity: Entity = {
     id: newId(),
@@ -583,10 +606,9 @@ export async function syncMentionsForNote(
  * added alias, an auto-link toggle — which is rare compared to typing. Cost is
  * one linear scan per note, and the automaton is shared across all of them.
  */
-export async function reindexCampaign(
-  campaignId: ID,
-  recognizer: { findMatches: (text: string) => EntityMatch[] },
-): Promise<number> {
+export async function reindexCampaign(campaignId: ID): Promise<number> {
+  const recognizer = await buildCampaignRecognizer(campaignId);
+
   // Trashed notes are excluded by the index range, or the next vocabulary
   // change would rebuild mentions for them and quietly restore their backlinks.
   const [notes, suppressions] = await Promise.all([
@@ -663,7 +685,9 @@ export async function getBacklinks(entityId: ID): Promise<Note[]> {
  * the PRD's 100,000-mention target (§63) — it runs on the Canon, the section
  * views and the graph.
  */
-export async function getMentionCounts(campaignId: ID): Promise<Map<ID, number>> {
+export async function getMentionCounts(
+  campaignId: ID,
+): Promise<EntityMentionCount[]> {
   const keys = (await db.entityMentions
     .where("[campaignId+entityId+noteId]")
     .between(
@@ -676,7 +700,9 @@ export async function getMentionCounts(campaignId: ID): Promise<Map<ID, number>>
   for (const [, entityId] of keys) {
     counts.set(entityId, (counts.get(entityId) ?? 0) + 1);
   }
-  return counts;
+  // An array, not the Map: a Map serialises to `{}`, so returning one would
+  // give a future HTTP client an empty result with no error.
+  return [...counts].map(([entityId, noteCount]) => ({ entityId, noteCount }));
 }
 
 /**
@@ -721,12 +747,12 @@ export async function listEntityTypes(campaignId: ID): Promise<EntityType[]> {
  * everywhere else, including elsewhere in the same note — a correction is a
  * statement about one piece of text, not about the entity.
  */
-export async function suppressMention(
-  campaignId: ID,
-  noteId: ID,
-  entityId: ID,
-  occurrenceIndex: number,
-): Promise<void> {
+export async function suppressMention({
+  campaignId,
+  noteId,
+  entityId,
+  occurrenceIndex,
+}: SuppressMentionRequest): Promise<void> {
   const existing = await db.mentionSuppressions
     .where("[noteId+entityId+occurrenceIndex]")
     .equals([noteId, entityId, occurrenceIndex])
@@ -748,11 +774,11 @@ export async function suppressMention(
     .delete();
 }
 
-export async function unsuppressMention(
-  noteId: ID,
-  entityId: ID,
-  occurrenceIndex: number,
-): Promise<void> {
+export async function unsuppressMention({
+  noteId,
+  entityId,
+  occurrenceIndex,
+}: UnsuppressMentionRequest): Promise<void> {
   await db.mentionSuppressions
     .where("[noteId+entityId+occurrenceIndex]")
     .equals([noteId, entityId, occurrenceIndex])
@@ -829,11 +855,11 @@ export async function getCollection(collectionId: ID): Promise<Collection | unde
 }
 
 /** Adds a note or entity. Membership is idempotent and unordered. */
-export async function addToCollection(
-  collectionId: ID,
-  memberType: CollectionMemberType,
-  memberId: ID,
-): Promise<void> {
+export async function addToCollection({
+  collectionId,
+  memberType,
+  memberId,
+}: CollectionMemberRequest): Promise<void> {
   const existing = await db.collectionMembers
     .where("[collectionId+memberType+memberId]")
     .equals([collectionId, memberType, memberId])
@@ -849,20 +875,15 @@ export async function addToCollection(
   });
 }
 
-export async function removeFromCollection(
-  collectionId: ID,
-  memberType: CollectionMemberType,
-  memberId: ID,
-): Promise<void> {
+export async function removeFromCollection({
+  collectionId,
+  memberType,
+  memberId,
+}: CollectionMemberRequest): Promise<void> {
   await db.collectionMembers
     .where("[collectionId+memberType+memberId]")
     .equals([collectionId, memberType, memberId])
     .delete();
-}
-
-export interface CollectionContents {
-  notes: Note[];
-  entities: Entity[];
 }
 
 /**
@@ -920,13 +941,13 @@ export async function getCollectionsForMember(
 
 /* ---------------------------------------------------------- relationships */
 
-export async function createRelationship(
-  campaignId: ID,
-  sourceEntityId: ID,
-  targetEntityId: ID,
-  relationshipType: string,
+export async function createRelationship({
+  campaignId,
+  sourceEntityId,
+  targetEntityId,
+  relationshipType,
   description = "",
-): Promise<Relationship | null> {
+}: CreateRelationshipRequest): Promise<Relationship | null> {
   if (sourceEntityId === targetEntityId) return null;
 
   const relationship: Relationship = {
@@ -984,12 +1005,12 @@ export async function syncTasksForNote(
 
 /* ---------------------------------------------------------- entity types */
 
-export async function createEntityType(
-  campaignId: ID,
-  name: string,
-  icon: string,
-  themeKey: string,
-): Promise<EntityType> {
+export async function createEntityType({
+  campaignId,
+  name,
+  icon,
+  themeKey,
+}: CreateEntityTypeRequest): Promise<EntityType> {
   const count = await db.entityTypes.where("campaignId").equals(campaignId).count();
   const type: EntityType = {
     id: newId(),
@@ -1030,13 +1051,6 @@ export async function reorderEntityTypes(orderedIds: ID[]): Promise<void> {
   });
 }
 
-export interface DeleteSectionResult {
-  deleted: boolean;
-  /** Populated when deletion was refused, for the UI to explain. */
-  reason?: string;
-  entityCount?: number;
-}
-
 /**
  * Deletes a section, but only when nothing depends on it.
  *
@@ -1045,35 +1059,39 @@ export interface DeleteSectionResult {
  * many entities are in the way is more useful than either cascading the delete
  * or silently reassigning them — hiding is right there as the reversible
  * alternative.
+ *
+ * Returns a `Result` because refusal is an ordinary outcome the UI explains,
+ * not a bug. A server maps `conflict` to 409.
  */
-export async function deleteEntityType(
-  entityTypeId: ID,
-): Promise<DeleteSectionResult> {
+export async function deleteEntityType(entityTypeId: ID): Promise<Result> {
   const entityCount = await db.entities
     .where("entityTypeId")
     .equals(entityTypeId)
     .count();
 
   if (entityCount > 0) {
-    return {
-      deleted: false,
-      entityCount,
-      reason: `${entityCount} ${entityCount === 1 ? "entity is" : "entities are"} still in this section. Move them, or hide the section instead.`,
-    };
+    return fail(
+      "conflict",
+      `${entityCount} ${entityCount === 1 ? "entity is" : "entities are"} still in this section. Move them, or hide the section instead.`,
+      { entityCount },
+    );
   }
 
   await db.entityTypes.delete(entityTypeId);
-  return { deleted: true };
+  return ok(undefined);
 }
 
 /** How many entities sit in each section, for the Canon's cards. */
 export async function getEntityCountsByType(
   campaignId: ID,
-): Promise<Map<ID, number>> {
+): Promise<EntityTypeCount[]> {
   const entities = await db.entities.where("campaignId").equals(campaignId).toArray();
   const counts = new Map<ID, number>();
   for (const entity of entities) {
     counts.set(entity.entityTypeId, (counts.get(entity.entityTypeId) ?? 0) + 1);
   }
-  return counts;
+  return [...counts].map(([entityTypeId, entityCount]) => ({
+    entityTypeId,
+    entityCount,
+  }));
 }

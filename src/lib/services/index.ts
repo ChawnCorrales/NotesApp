@@ -65,13 +65,7 @@ export {
 export { getNote, getNoteTitles } from "./reads";
 
 /* -------------------------------------------------- folders and structure */
-export {
-  createFolder,
-  renameFolder,
-  moveFolder,
-  deleteFolder,
-  type MoveFolderResult,
-} from "./repository";
+export { createFolder, renameFolder, moveFolder, deleteFolder } from "./repository";
 export { listFolders } from "./reads";
 
 /* --------------------------------------------------------------- entities */
@@ -100,7 +94,6 @@ export {
   deleteEntityType,
   listEntityTypes,
   getEntityCountsByType,
-  type DeleteSectionResult,
 } from "./repository";
 /**
  * Collections: conceptual bundles of notes *and* entities.
@@ -118,7 +111,6 @@ export {
   removeFromCollection,
   getCollectionContents,
   getCollectionsForMember,
-  type CollectionContents,
 } from "./repository";
 export { syncTasksForNote } from "./repository";
 export { listTasks, listEntityTypesUnordered } from "./reads";
@@ -167,11 +159,35 @@ export {
 } from "./graph";
 
 /* ----------------------------------------------------------------- import */
+export { importMarkdownNotes } from "./repository";
+
+/* -------------------------------------------------------------- contracts */
+/**
+ * The shapes that cross the boundary, and the helpers for reading a `Result`.
+ * See `contracts.ts` for the rules these follow.
+ */
 export {
-  importMarkdownNotes,
+  ok,
+  fail,
+  type JsonValue,
+  type JsonSafe,
+  type Result,
+  type ServiceError,
+  type CreateNoteRequest,
+  type CreateEntityRequest,
+  type CreateRelationshipRequest,
+  type CreateEntityTypeRequest,
+  type CollectionMemberRequest,
+  type SuppressMentionRequest,
+  type UnsuppressMentionRequest,
+  type ImportMarkdownRequest,
   type MarkdownFile,
   type ImportOutcome,
-} from "./repository";
+  type EntityMentionCount,
+  type EntityTypeCount,
+  type NoteSummary,
+  type CollectionContents,
+} from "./contracts";
 
 /* --------------------------------------------------------------- campaign */
 export { getCampaign } from "./reads";

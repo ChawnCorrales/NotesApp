@@ -54,7 +54,7 @@ export function Sidebar() {
 
   const handleQuickNote = useCallback(async () => {
     if (!campaignId) return;
-    const note = await createNote(campaignId);
+    const note = await createNote({ campaignId: campaignId });
     navigate({ kind: "note", noteId: note.id });
   }, [campaignId, navigate]);
 

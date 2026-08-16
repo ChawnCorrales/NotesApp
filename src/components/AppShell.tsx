@@ -37,7 +37,7 @@ export function AppShell() {
 
   const handleQuickNote = useCallback(async () => {
     if (!campaign) return;
-    const note = await createNote(campaign.id);
+    const note = await createNote({ campaignId: campaign.id });
     navigate({ kind: "note", noteId: note.id });
   }, [campaign, navigate]);
 

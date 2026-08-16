@@ -35,6 +35,7 @@ import {
   seedLegacyCampaign,
   type LegacyFixture,
 } from "../helpers/legacy-db";
+import { noteCountFor } from "../helpers/campaign";
 
 /**
  * Stands up a database at `fromVersion`, then opens it with the current schema.
@@ -138,8 +139,8 @@ describe.each(LEGACY_VERSIONS)("upgrading from version %i", (from) => {
     const counts = await getMentionCounts(fixture.campaignId);
 
     expect(backlinks.map((n) => n.id)).toEqual([fixture.noteIds[0]]);
-    expect(counts.get(fixture.entityIds[0])).toBe(1);
-    expect(counts.get(fixture.entityIds[1])).toBe(1);
+    expect(noteCountFor(counts, fixture.entityIds[0])).toBe(1);
+    expect(noteCountFor(counts, fixture.entityIds[1])).toBe(1);
   });
 
   it("keeps relationships, queryable from both ends", async () => {
@@ -223,7 +224,11 @@ describe.each([2, 3, 4, 5])("upgrading from version %i keeps v2 data", (from) =>
 
   it("lets a migrated collection take notes, which it never could before", async () => {
     const { addToCollection } = await import("@/lib/services");
-    await addToCollection(fixture.groupId as string, "note", fixture.noteIds[0]);
+    await addToCollection({
+      collectionId: fixture.groupId as string,
+      memberType: "note",
+      memberId: fixture.noteIds[0],
+    });
 
     const contents = await getCollectionContents(fixture.groupId as string);
     expect(contents.notes.map((n) => n.id)).toEqual([fixture.noteIds[0]]);

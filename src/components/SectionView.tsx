@@ -9,7 +9,11 @@
 
 import { useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { getMentionCounts, updateEntityType } from "@/lib/services";
+import {
+  getMentionCounts,
+  updateEntityType,
+  type EntityMentionCount,
+} from "@/lib/services";
 import { useCampaign } from "./campaign-context";
 import { useNavigation } from "./navigation-context";
 import { CreateEntityDialog } from "./CreateEntityDialog";
@@ -32,13 +36,21 @@ export function SectionView({ entityTypeId }: { entityTypeId: string }) {
   }, [entities, entityTypeId, filter]);
 
   /** Note counts per entity, so each card can say how present it is. */
-  const mentionCounts = useLiveQuery(
+  const counts = useLiveQuery(
     () =>
       campaign
         ? getMentionCounts(campaign.id)
-        : Promise.resolve(new Map<string, number>()),
+        : Promise.resolve<EntityMentionCount[]>([]),
     [campaign?.id, entities],
-    new Map<string, number>(),
+    [] as EntityMentionCount[],
+  );
+
+  // The service returns an array, because a Map does not survive JSON. Callers
+  // that want lookup build one, which is a line of code and cannot silently
+  // arrive empty over a network.
+  const mentionCounts = useMemo(
+    () => new Map(counts.map((c) => [c.entityId, c.noteCount])),
+    [counts],
   );
 
   if (!type) {

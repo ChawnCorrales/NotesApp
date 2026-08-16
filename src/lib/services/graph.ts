@@ -121,11 +121,7 @@ export async function getCampaignGraph(campaignId: ID): Promise<CampaignGraph> {
  * Marrow" — and the natural shape of a future `GET /entities/:id/neighbourhood`.
  * Breadth-first, so `hops` means what a reader expects.
  */
-export function traverse(
-  edges: GraphEdge[],
-  startEntityId: ID,
-  hops: number,
-): Set<ID> {
+export function traverse(edges: GraphEdge[], startEntityId: ID, hops: number): ID[] {
   const neighbours = new Map<ID, ID[]>();
   for (const edge of edges) {
     const a = neighbours.get(edge.sourceEntityId) ?? [];
@@ -155,7 +151,9 @@ export function traverse(
     frontier = next;
   }
 
-  return reached;
+  // An array, not the Set used internally: a Set serialises to `{}`, so
+  // returning one would give an HTTP client an empty neighbourhood.
+  return [...reached];
 }
 
 /** Entities within `hops` of a start, using the campaign's current graph. */
@@ -163,7 +161,7 @@ export async function getNeighbourhood(
   campaignId: ID,
   startEntityId: ID,
   hops: number,
-): Promise<Set<ID>> {
+): Promise<ID[]> {
   const { edges } = await getCampaignGraph(campaignId);
   return traverse(edges, startEntityId, hops);
 }

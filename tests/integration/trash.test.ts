@@ -22,7 +22,6 @@ import {
   trashNote,
 } from "@/lib/services";
 import {
-  buildRecognizer,
   createNoteWithText,
   createNpc,
   createTestCampaign,
@@ -30,6 +29,7 @@ import {
   resetDatabase,
   writeNote,
   type TestCampaign,
+  noteCountFor,
 } from "../helpers/campaign";
 
 let fixture: TestCampaign;
@@ -38,8 +38,6 @@ beforeEach(async () => {
   await resetDatabase();
   fixture = await createTestCampaign();
 });
-
-const recognizer = () => buildRecognizer(fixture.campaign.id);
 
 describe("moving a note to the trash", () => {
   it("keeps the note and its content", async () => {
@@ -81,12 +79,12 @@ describe("moving a note to the trash", () => {
 
     await trashNote(note.id);
 
-    expect((await getMentionCounts(campaign.id)).get(marrow.id)).toBeUndefined();
+    expect(noteCountFor(await getMentionCounts(campaign.id), marrow.id)).toBeUndefined();
   });
 
   it("removes its tasks from the task viewer", async () => {
     const { campaign } = fixture;
-    const note = await createNote(campaign.id, { title: "Prep" });
+    const note = await createNote({ campaignId: campaign.id, title: "Prep" });
     await db.tasks.add({
       id: "t1",
       campaignId: campaign.id,
@@ -134,7 +132,7 @@ describe("a trashed note stays out of the index", () => {
     // Flagging a name later triggers a campaign-wide reindex. Without an
     // explicit exclusion this silently resurrects the trashed note's backlinks.
     const marrow = await createNpc(campaign.id, npcType.id, "Marrow");
-    await reindexCampaign(campaign.id, await recognizer());
+    await reindexCampaign(campaign.id);
 
     expect(await getBacklinks(marrow.id)).toHaveLength(0);
     expect(await db.entityMentions.where("noteId").equals(note.id).count()).toBe(0);
@@ -146,7 +144,7 @@ describe("restoring", () => {
     const note = await createNoteWithText(fixture.campaign.id, "S1", "Text.");
     await trashNote(note.id);
 
-    await restoreNote(note.id, await recognizer());
+    await restoreNote(note.id);
 
     expect((await db.notes.get(note.id))?.deletedAt).toBe(NOT_DELETED);
     expect(await listTrashedNotes(fixture.campaign.id)).toHaveLength(0);
@@ -158,7 +156,7 @@ describe("restoring", () => {
     const note = await createNoteWithText(campaign.id, "S1", "Marrow waits.");
     await trashNote(note.id);
 
-    await restoreNote(note.id, await recognizer());
+    await restoreNote(note.id);
 
     expect((await getBacklinks(marrow.id)).map((n) => n.id)).toEqual([note.id]);
   });
@@ -170,14 +168,14 @@ describe("restoring", () => {
 
     // The GM flags the name while the note is in the trash.
     const greyhaven = await createNpc(campaign.id, npcType.id, "Greyhaven");
-    await restoreNote(note.id, await recognizer());
+    await restoreNote(note.id);
 
     expect((await getBacklinks(greyhaven.id)).map((n) => n.id)).toEqual([note.id]);
   });
 
   it("rebuilds its tasks from the stored document", async () => {
     const { campaign } = fixture;
-    const note = await createNote(campaign.id, {
+    const note = await createNote({ campaignId: campaign.id,
       title: "Prep",
       content: JSON.stringify({
         type: "doc",
@@ -200,23 +198,23 @@ describe("restoring", () => {
     await trashNote(note.id);
     expect(await db.tasks.count()).toBe(0);
 
-    await restoreNote(note.id, await recognizer());
+    await restoreNote(note.id);
 
     const tasks = await db.tasks.toArray();
     expect(tasks.map((t) => t.text)).toEqual(["Name the inn"]);
   });
 
   it("copes with a note that has no content", async () => {
-    const note = await createNote(fixture.campaign.id, { title: "Blank" });
+    const note = await createNote({ campaignId: fixture.campaign.id, title: "Blank" });
     await trashNote(note.id);
 
-    await restoreNote(note.id, await recognizer());
+    await restoreNote(note.id);
 
     expect((await db.notes.get(note.id))?.deletedAt).toBe(NOT_DELETED);
   });
 
   it("is a no-op for a note that no longer exists", async () => {
-    await expect(restoreNote("missing", await recognizer())).resolves.toBeUndefined();
+    await expect(restoreNote("missing")).resolves.toBeUndefined();
   });
 });
 
@@ -260,7 +258,7 @@ describe("editing after a restore", () => {
     const marrow = await createNpc(campaign.id, npcType.id, "Marrow");
     const note = await createNoteWithText(campaign.id, "S1", "Nothing here.");
     await trashNote(note.id);
-    await restoreNote(note.id, await recognizer());
+    await restoreNote(note.id);
 
     await writeNote(campaign.id, note.id, "Marrow returns.");
 

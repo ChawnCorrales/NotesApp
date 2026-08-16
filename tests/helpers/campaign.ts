@@ -8,9 +8,50 @@
  */
 
 import { db, newId } from "@/lib/db/db";
-import { createEntity, createNote, syncMentionsForNote } from "@/lib/services";
+import {
+  createEntity,
+  createNote,
+  syncMentionsForNote,
+  type EntityMentionCount,
+  type EntityTypeCount,
+  type Result,
+} from "@/lib/services";
 import type { Campaign, Entity, EntityType, Note } from "@/lib/db/types";
 import { EntityRecognizer } from "@/lib/entities/recognizer";
+
+/**
+ * Reading the array-shaped responses the service layer returns.
+ *
+ * Counts come back as arrays rather than Maps because a Map serialises to `{}`
+ * — see `contracts.ts`. These keep the assertions readable without tempting
+ * anyone to put the Map back.
+ */
+export function noteCountFor(
+  counts: EntityMentionCount[],
+  entityId: string,
+): number | undefined {
+  return counts.find((c) => c.entityId === entityId)?.noteCount;
+}
+
+export function entityCountFor(
+  counts: EntityTypeCount[],
+  entityTypeId: string,
+): number | undefined {
+  return counts.find((c) => c.entityTypeId === entityTypeId)?.entityCount;
+}
+
+/** The message from a refused operation, or undefined if it succeeded. */
+export function errorMessage(result: Result<unknown>): string | undefined {
+  return result.ok ? undefined : result.error.message;
+}
+
+/** One detail field from a refused operation, e.g. how many entities blocked it. */
+export function errorDetail(
+  result: Result<unknown>,
+  key: string,
+): string | number | undefined {
+  return result.ok ? undefined : result.error.details?.[key];
+}
 
 /** Clears every table so each test starts from a known-empty database. */
 export async function resetDatabase(): Promise<void> {
@@ -102,7 +143,7 @@ export async function createNoteWithText(
   title: string,
   text: string,
 ): Promise<Note> {
-  const note = await createNote(campaignId, { title });
+  const note = await createNote({ campaignId: campaignId, title });
   await writeNote(campaignId, note.id, text);
   const saved = await db.notes.get(note.id);
   return saved as Note;
@@ -113,5 +154,5 @@ export async function createNpc(
   typeId: string,
   name: string,
 ): Promise<Entity> {
-  return createEntity(campaignId, name, typeId);
+  return createEntity({ campaignId, name, entityTypeId: typeId });
 }

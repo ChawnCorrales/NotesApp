@@ -35,6 +35,7 @@ import {
   reopenDatabase,
   resetDatabase,
   type TestCampaign,
+  noteCountFor,
 } from "../helpers/campaign";
 
 let fixture: TestCampaign;
@@ -65,7 +66,7 @@ describe("live notes", () => {
   });
 
   it("includes a note with no content", async () => {
-    const note = await createNote(fixture.campaign.id, { title: "Blank" });
+    const note = await createNote({ campaignId: fixture.campaign.id, title: "Blank" });
 
     expect((await listLiveNotes(fixture.campaign.id)).map((n) => n.id)).toEqual([
       note.id,
@@ -73,7 +74,7 @@ describe("live notes", () => {
   });
 
   it("marks new notes as live", async () => {
-    const note = await createNote(fixture.campaign.id, { title: "New" });
+    const note = await createNote({ campaignId: fixture.campaign.id, title: "New" });
 
     expect((await db.notes.get(note.id))?.deletedAt).toBe(NOT_DELETED);
   });
@@ -106,15 +107,14 @@ describe("the deletedAt invariant", () => {
 
   it("writes a number on every path that touches deletedAt", async () => {
     const { campaign } = fixture;
-    const created = await createNote(campaign.id, { title: "A" });
+    const created = await createNote({ campaignId: campaign.id, title: "A" });
     expect(typeof created.deletedAt).toBe("number");
 
     await trashNote(created.id);
     expect(typeof (await db.notes.get(created.id))?.deletedAt).toBe("number");
 
     const { restoreNote } = await import("@/lib/services");
-    const { EntityRecognizer } = await import("@/lib/entities/recognizer");
-    await restoreNote(created.id, new EntityRecognizer([]));
+    await restoreNote(created.id);
     expect((await db.notes.get(created.id))?.deletedAt).toBe(NOT_DELETED);
   });
 });
@@ -180,14 +180,14 @@ describe("mention counts and pairs", () => {
     await createNoteWithText(campaign.id, "A", "Marrow. Marrow. Marrow.");
     await createNoteWithText(campaign.id, "B", "Marrow.");
 
-    expect((await getMentionCounts(campaign.id)).get(marrow.id)).toBe(2);
+    expect(noteCountFor(await getMentionCounts(campaign.id), marrow.id)).toBe(2);
   });
 
   it("omits entities with no mentions", async () => {
     const { campaign, npcType } = fixture;
     const marrow = await createNpc(campaign.id, npcType.id, "Marrow");
 
-    expect((await getMentionCounts(campaign.id)).get(marrow.id)).toBeUndefined();
+    expect(noteCountFor(await getMentionCounts(campaign.id), marrow.id)).toBeUndefined();
   });
 
   it("is scoped to one campaign", async () => {
@@ -199,8 +199,8 @@ describe("mention counts and pairs", () => {
     await createNoteWithText(other.campaign.id, "B", "Marrow.");
 
     const counts = await getMentionCounts(campaign.id);
-    expect(counts.size).toBe(1);
-    expect(counts.get(mine.id)).toBe(1);
+    expect(counts.length).toBe(1);
+    expect(noteCountFor(counts, mine.id)).toBe(1);
   });
 
   it("returns one pair per entity per note", async () => {

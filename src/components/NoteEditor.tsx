@@ -289,7 +289,12 @@ export function NoteEditor({ noteId }: { noteId: string }) {
    */
   const handleSuppress = useCallback(async () => {
     if (!popover || !campaign) return;
-    await suppressMention(campaign.id, noteId, popover.entityId, popover.occurrence);
+    await suppressMention({
+      campaignId: campaign.id,
+      noteId,
+      entityId: popover.entityId,
+      occurrenceIndex: popover.occurrence,
+    });
     setPopover(null);
     const instance = editorRef.current;
     if (instance) await persist(instance);

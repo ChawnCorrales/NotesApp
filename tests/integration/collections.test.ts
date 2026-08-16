@@ -49,9 +49,9 @@ async function redQueenInvestigation() {
   const marrow = await createNpc(campaign.id, npcType.id, "Marrow");
   const greyhaven = await createNpc(campaign.id, locationType.id, "Greyhaven");
 
-  await addToCollection(collection.id, "note", session.id);
-  await addToCollection(collection.id, "entity", marrow.id);
-  await addToCollection(collection.id, "entity", greyhaven.id);
+  await addToCollection({ collectionId: collection.id, memberType: "note", memberId: session.id });
+  await addToCollection({ collectionId: collection.id, memberType: "entity", memberId: marrow.id });
+  await addToCollection({ collectionId: collection.id, memberType: "entity", memberId: greyhaven.id });
 
   return { collection, session, marrow, greyhaven };
 }
@@ -114,8 +114,8 @@ describe("mixed membership", () => {
     const a = await createCollection(campaign.id, "Investigation");
     const b = await createCollection(campaign.id, "Merchants");
 
-    await addToCollection(a.id, "entity", marrow.id);
-    await addToCollection(b.id, "entity", marrow.id);
+    await addToCollection({ collectionId: a.id, memberType: "entity", memberId: marrow.id });
+    await addToCollection({ collectionId: b.id, memberType: "entity", memberId: marrow.id });
 
     expect((await getCollectionsForMember("entity", marrow.id)).map((c) => c.name)).toEqual(
       ["Investigation", "Merchants"],
@@ -127,8 +127,8 @@ describe("mixed membership", () => {
     const marrow = await createNpc(campaign.id, npcType.id, "Marrow");
     const collection = await createCollection(campaign.id, "A");
 
-    await addToCollection(collection.id, "entity", marrow.id);
-    await addToCollection(collection.id, "entity", marrow.id);
+    await addToCollection({ collectionId: collection.id, memberType: "entity", memberId: marrow.id });
+    await addToCollection({ collectionId: collection.id, memberType: "entity", memberId: marrow.id });
 
     expect(await db.collectionMembers.count()).toBe(1);
   });
@@ -137,8 +137,8 @@ describe("mixed membership", () => {
     // Ids are UUIDs so this cannot happen naturally, but the composite key must
     // still distinguish the two kinds rather than collapsing them.
     const collection = await createCollection(fixture.campaign.id, "A");
-    await addToCollection(collection.id, "note", "shared-id");
-    await addToCollection(collection.id, "entity", "shared-id");
+    await addToCollection({ collectionId: collection.id, memberType: "note", memberId: "shared-id" });
+    await addToCollection({ collectionId: collection.id, memberType: "entity", memberId: "shared-id" });
 
     expect(await db.collectionMembers.count()).toBe(2);
   });
@@ -146,7 +146,7 @@ describe("mixed membership", () => {
   it("removes a single membership without touching the rest", async () => {
     const { collection, session, marrow } = await redQueenInvestigation();
 
-    await removeFromCollection(collection.id, "entity", marrow.id);
+    await removeFromCollection({ collectionId: collection.id, memberType: "entity", memberId: marrow.id });
 
     const contents = await getCollectionContents(collection.id);
     expect(contents.entities.map((e) => e.id)).not.toContain(marrow.id);
@@ -172,7 +172,7 @@ describe("collections are meaning, folders are storage", () => {
     await moveNoteToFolder(note.id, folder.id);
 
     const collection = await createCollection(campaign.id, "Investigation");
-    await addToCollection(collection.id, "note", note.id);
+    await addToCollection({ collectionId: collection.id, memberType: "note", memberId: note.id });
 
     // Still filed exactly where the user put it.
     expect((await db.notes.get(note.id))?.folderId).toBe(folder.id);
@@ -186,8 +186,8 @@ describe("collections are meaning, folders are storage", () => {
 
     const a = await createCollection(campaign.id, "Investigation");
     const b = await createCollection(campaign.id, "Loose Ends");
-    await addToCollection(a.id, "note", note.id);
-    await addToCollection(b.id, "note", note.id);
+    await addToCollection({ collectionId: a.id, memberType: "note", memberId: note.id });
+    await addToCollection({ collectionId: b.id, memberType: "note", memberId: note.id });
 
     expect(await getCollectionsForMember("note", note.id)).toHaveLength(2);
     expect((await db.notes.get(note.id))?.folderId).toBe(folder.id);
@@ -213,8 +213,8 @@ describe("colour is presentation only", () => {
     const a = await createCollection(campaign.id, "A", "faction");
     const b = await createCollection(campaign.id, "B", "faction");
 
-    await addToCollection(a.id, "entity", marrow.id);
-    await addToCollection(b.id, "entity", verena.id);
+    await addToCollection({ collectionId: a.id, memberType: "entity", memberId: marrow.id });
+    await addToCollection({ collectionId: b.id, memberType: "entity", memberId: verena.id });
 
     expect((await getCollectionContents(a.id)).entities.map((e) => e.id)).toEqual([
       marrow.id,
@@ -267,8 +267,7 @@ describe("deleting", () => {
     expect(await getCollectionsForMember("note", session.id)).toHaveLength(1);
 
     const { restoreNote } = await import("@/lib/services");
-    const { EntityRecognizer } = await import("@/lib/entities/recognizer");
-    await restoreNote(session.id, new EntityRecognizer([]));
+    await restoreNote(session.id);
 
     expect((await getCollectionContents(collection.id)).notes).toHaveLength(1);
   });

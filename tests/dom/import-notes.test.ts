@@ -10,7 +10,6 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { db } from "@/lib/db/db";
 import { getBacklinks, importMarkdownNotes } from "@/lib/services";
 import {
-  buildRecognizer,
   createNpc,
   createTestCampaign,
   resetDatabase,
@@ -25,8 +24,7 @@ beforeEach(async () => {
 });
 
 async function importFiles(files: { name: string; content: string }[]) {
-  const recognizer = await buildRecognizer(fixture.campaign.id);
-  return importMarkdownNotes(fixture.campaign.id, files, recognizer);
+  return importMarkdownNotes({ campaignId: fixture.campaign.id, files: files });
 }
 
 describe("importing files", () => {
@@ -167,13 +165,7 @@ describe("resilience", () => {
         throw new Error("unreadable");
       },
     };
-
-    const recognizer = await buildRecognizer(fixture.campaign.id);
-    const result = await importMarkdownNotes(
-      fixture.campaign.id,
-      [{ name: "good.md", content: "# Good\n\nFine." }, exploding],
-      recognizer,
-    );
+    const result = await importMarkdownNotes({ campaignId: fixture.campaign.id, files: [{ name: "good.md", content: "# Good\n\nFine." }, exploding] });
 
     expect(result.imported).toHaveLength(1);
     expect(result.failed).toEqual([{ name: "bad.md", reason: "unreadable" }]);

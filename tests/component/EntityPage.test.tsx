@@ -110,7 +110,7 @@ describe("entity page", () => {
     const { campaign, npcType, locationType } = fixture;
     const marrow = await createNpc(campaign.id, npcType.id, "Marrow");
     const greyhaven = await createNpc(campaign.id, locationType.id, "Greyhaven");
-    await createRelationship(campaign.id, marrow.id, greyhaven.id, "works in");
+    await createRelationship({ campaignId: campaign.id, sourceEntityId: marrow.id, targetEntityId: greyhaven.id, relationshipType: "works in" });
     await createNoteWithText(campaign.id, "Session 12", "Marrow writes.");
 
     renderEntityPage(marrow.id);

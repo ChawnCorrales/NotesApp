@@ -157,15 +157,15 @@ describe("traversal", () => {
   ];
 
   it("returns just the start at zero hops", () => {
-    expect([...traverse(edges, "marrow", 0)]).toEqual(["marrow"]);
+    expect(traverse(edges, "marrow", 0)).toEqual(["marrow"]);
   });
 
   it("reaches direct neighbours at one hop", () => {
-    expect([...traverse(edges, "marrow", 1)].sort()).toEqual(["greyhaven", "marrow"]);
+    expect(traverse(edges, "marrow", 1).sort()).toEqual(["greyhaven", "marrow"]);
   });
 
   it("reaches two hops, the PRD's example", () => {
-    expect([...traverse(edges, "marrow", 2)].sort()).toEqual([
+    expect(traverse(edges, "marrow", 2).sort()).toEqual([
       "cult",
       "greyhaven",
       "marrow",
@@ -174,14 +174,14 @@ describe("traversal", () => {
 
   it("follows edges in either direction", () => {
     // "crown" is only ever a target, but is still connected.
-    expect([...traverse(edges, "crown", 1)].sort()).toEqual(["crown", "cult"]);
+    expect(traverse(edges, "crown", 1).sort()).toEqual(["crown", "cult"]);
   });
 
   it("never crosses to an unconnected part of the graph", () => {
     const reached = traverse(edges, "marrow", 10);
 
-    expect(reached.has("island")).toBe(false);
-    expect(reached.has("islet")).toBe(false);
+    expect(reached.includes("island")).toBe(false);
+    expect(reached.includes("islet")).toBe(false);
   });
 
   it("terminates on a cycle", () => {
@@ -192,10 +192,10 @@ describe("traversal", () => {
     ];
 
     // Campaign graphs are full of cycles; a naive walk would not return.
-    expect([...traverse(cyclic, "a", 10)].sort()).toEqual(["a", "b", "c"]);
+    expect(traverse(cyclic, "a", 10).sort()).toEqual(["a", "b", "c"]);
   });
 
   it("handles a start with no edges at all", () => {
-    expect([...traverse(edges, "unknown", 3)]).toEqual(["unknown"]);
+    expect(traverse(edges, "unknown", 3)).toEqual(["unknown"]);
   });
 });

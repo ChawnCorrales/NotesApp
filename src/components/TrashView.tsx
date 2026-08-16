@@ -29,7 +29,7 @@ function deletedWhen(timestamp: number): string {
 }
 
 export function TrashView() {
-  const { campaign, recognizer } = useCampaign();
+  const { campaign } = useCampaign();
   const { navigate } = useNavigation();
 
   const [confirmingEmpty, setConfirmingEmpty] = useState(false);
@@ -42,10 +42,10 @@ export function TrashView() {
 
   const restore = useCallback(
     async (note: Note) => {
-      await restoreNote(note.id, recognizer);
+      await restoreNote(note.id);
       navigate({ kind: "note", noteId: note.id });
     },
-    [recognizer, navigate],
+    [navigate],
   );
 
   return (

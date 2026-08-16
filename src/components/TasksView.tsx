@@ -10,7 +10,7 @@
 
 import { useMemo } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { getNoteTitles, listTasks } from "@/lib/services";
+import { getNoteTitles, listTasks, type NoteSummary } from "@/lib/services";
 import type { Task } from "@/lib/db/types";
 import { useCampaign } from "./campaign-context";
 import { useNavigation } from "./navigation-context";
@@ -27,10 +27,17 @@ export function TasksView() {
     [] as Task[],
   );
 
-  const noteTitles = useLiveQuery(
-    () => (campaignId ? getNoteTitles(campaignId) : Promise.resolve(new Map<string, string>())),
+  const summaries = useLiveQuery(
+    () => (campaignId ? getNoteTitles(campaignId) : Promise.resolve<NoteSummary[]>([])),
     [campaignId, tasks],
-    new Map<string, string>(),
+    [] as NoteSummary[],
+  );
+
+  // The service returns a list; lookup is built here rather than shipped as a
+  // Map, which would serialise to an empty object over a network.
+  const noteTitles = useMemo(
+    () => new Map(summaries.map((s) => [s.noteId, s.title])),
+    [summaries],
   );
 
   const { open, done } = useMemo(() => {

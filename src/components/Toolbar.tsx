@@ -65,7 +65,7 @@ export function Toolbar({
 
   const newNote = useCallback(async () => {
     if (!campaign) return;
-    const note = await createNote(campaign.id);
+    const note = await createNote({ campaignId: campaign.id });
     navigate({ kind: "note", noteId: note.id });
   }, [campaign, navigate]);
 
@@ -102,7 +102,12 @@ export function Toolbar({
             onClick={() =>
               run(() => {
                 if (!campaign) return;
-                void createEntityType(campaign.id, "New section", "◇", "concept").then(
+                void createEntityType({
+                  campaignId: campaign.id,
+                  name: "New section",
+                  icon: "◇",
+                  themeKey: "concept",
+                }).then(
                   () => navigate({ kind: "canon" }),
                 );
               })

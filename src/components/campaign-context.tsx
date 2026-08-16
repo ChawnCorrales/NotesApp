@@ -134,7 +134,7 @@ export function CampaignProvider({ children }: { children: ReactNode }) {
     if (!campaignId) return;
 
     const timer = setTimeout(() => {
-      void reindexCampaign(campaignId, recognizer);
+      void reindexCampaign(campaignId);
     }, REINDEX_DEBOUNCE_MS);
 
     return () => clearTimeout(timer);
