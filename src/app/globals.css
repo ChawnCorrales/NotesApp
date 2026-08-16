@@ -1,0 +1,369 @@
+@import "tailwindcss";
+
+/**
+ * The "Grimoire" default theme (PRD §47).
+ *
+ * Every colour is a variable rather than a literal so that alternate themes
+ * become a matter of overriding this block (§46). The atmosphere is carried by
+ * the chrome — sidebar, borders, headings — while the editor surface stays
+ * close to neutral parchment, because the PRD is explicit that readability
+ * outranks decoration and that the writing surface should feel calm.
+ */
+
+:root {
+  --ink: #ded3bd;
+  --ink-muted: #9a8d76;
+  --ink-faint: #6b6152;
+
+  --bg-abyss: #0c0a08;
+  --bg-surface: #131009;
+  --bg-raised: #1b170f;
+  --bg-parchment: #17130c;
+
+  --border-hair: #2b241a;
+  --border-strong: #3d3325;
+
+  --accent-blood: #a33a30;
+  --accent-candle: #c9a227;
+  --accent-verdigris: #4e7f6d;
+
+  /* Entity category palette, keyed by EntityType.themeKey. */
+  --entity-npc: #c9a227;
+  --entity-pc: #d8b4fe;
+  --entity-location: #4e9e7f;
+  --entity-faction: #a33a30;
+  --entity-item: #b0873f;
+  --entity-event: #9a6ec4;
+  --entity-quest: #c97f3a;
+  --entity-deity: #d9c47a;
+  --entity-creature: #7f9e4e;
+  --entity-organization: #4e7f9e;
+  --entity-mystery: #8a7d9e;
+  --entity-concept: #8a8272;
+}
+
+@theme inline {
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-ink-faint: var(--ink-faint);
+
+  --color-abyss: var(--bg-abyss);
+  --color-surface: var(--bg-surface);
+  --color-raised: var(--bg-raised);
+  --color-parchment: var(--bg-parchment);
+
+  --color-hair: var(--border-hair);
+  --color-strong: var(--border-strong);
+
+  --color-blood: var(--accent-blood);
+  --color-candle: var(--accent-candle);
+  --color-verdigris: var(--accent-verdigris);
+
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background-color: var(--bg-abyss);
+  color: var(--ink);
+  /*
+   * Candlelight plus a faint weave.
+   *
+   * The texture is deliberately near-invisible — a repeating gradient at a few
+   * percent opacity. Anything stronger competes with the text, and §47 is
+   * explicit that readability outranks decoration.
+   */
+  background-image:
+    radial-gradient(ellipse at 50% -10%, rgba(201, 162, 39, 0.06), transparent 55%),
+    repeating-linear-gradient(
+      45deg,
+      rgba(255, 255, 255, 0.012) 0px,
+      rgba(255, 255, 255, 0.012) 1px,
+      transparent 1px,
+      transparent 3px
+    );
+}
+
+/* --------------------------------------------------------------- the shell */
+
+/*
+ * Section cards and tabs get their personality from edge treatment rather than
+ * fills, so a screen full of them stays calm.
+ */
+[data-testid="canon-section"] {
+  position: relative;
+  overflow: hidden;
+}
+
+[data-testid="canon-section"]::after {
+  /* A slow sheen that only shows on hover — enough to feel alive, not enough
+     to notice while reading past it. */
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    120deg,
+    transparent 40%,
+    rgba(201, 162, 39, 0.06) 50%,
+    transparent 60%
+  );
+  opacity: 0;
+  transition: opacity 220ms ease;
+  pointer-events: none;
+}
+
+[data-testid="canon-section"]:hover::after {
+  opacity: 1;
+}
+
+[role="tab"][aria-selected="true"] {
+  background-image: linear-gradient(
+    to bottom,
+    rgba(201, 162, 39, 0.07),
+    transparent 60%
+  );
+}
+
+/* Menus and popovers settle in rather than snapping. */
+[role="menu"],
+[role="dialog"] {
+  animation: rise-in 140ms ease-out;
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Graph edges draw themselves in, so a new relationship is noticed. */
+.react-flow__edge-path {
+  stroke-dasharray: 600;
+  animation: draw-edge 700ms ease-out forwards;
+}
+
+@keyframes draw-edge {
+  from {
+    stroke-dashoffset: 600;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+::selection {
+  background: rgba(201, 162, 39, 0.25);
+}
+
+/* ------------------------------------------------------ entity mentions */
+
+/**
+ * Recognised entities (PRD §9).
+ *
+ * A dotted underline in the category colour, and nothing else at rest. Anything
+ * heavier — a filled highlight, a badge — turns a paragraph with six entities
+ * into a ransom note, which defeats the requirement that documents stay
+ * readable. The tint only appears on hover, where it signals interactivity.
+ */
+.entity-mention {
+  --entity-color: var(--entity-concept);
+  color: var(--entity-color);
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  cursor: pointer;
+  border-radius: 2px;
+  transition: background-color 120ms ease;
+}
+
+.entity-mention:hover {
+  background-color: color-mix(in srgb, var(--entity-color) 18%, transparent);
+}
+
+.entity-mention[data-entity-theme="npc"] { --entity-color: var(--entity-npc); }
+.entity-mention[data-entity-theme="pc"] { --entity-color: var(--entity-pc); }
+.entity-mention[data-entity-theme="location"] { --entity-color: var(--entity-location); }
+.entity-mention[data-entity-theme="faction"] { --entity-color: var(--entity-faction); }
+.entity-mention[data-entity-theme="item"] { --entity-color: var(--entity-item); }
+.entity-mention[data-entity-theme="event"] { --entity-color: var(--entity-event); }
+.entity-mention[data-entity-theme="quest"] { --entity-color: var(--entity-quest); }
+.entity-mention[data-entity-theme="deity"] { --entity-color: var(--entity-deity); }
+.entity-mention[data-entity-theme="creature"] { --entity-color: var(--entity-creature); }
+.entity-mention[data-entity-theme="organization"] { --entity-color: var(--entity-organization); }
+.entity-mention[data-entity-theme="mystery"] { --entity-color: var(--entity-mystery); }
+.entity-mention[data-entity-theme="concept"] { --entity-color: var(--entity-concept); }
+
+/* ------------------------------------------------------------- the editor */
+
+.ProseMirror {
+  outline: none;
+  min-height: 60vh;
+  color: var(--ink);
+  line-height: 1.75;
+  font-size: 1.02rem;
+  /* ProseMirror requires this. Without it the browser collapses runs of spaces
+     and drops trailing ones, so typing two spaces after a sentence — or leaving
+     a space at the end of a line — silently does not do what the user did. */
+  white-space: pre-wrap;
+}
+
+.ProseMirror > * + * {
+  margin-top: 0.85em;
+}
+
+.ProseMirror h1,
+.ProseMirror h2,
+.ProseMirror h3 {
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: #e8dcc4;
+}
+
+.ProseMirror h1 { font-size: 1.7rem; margin-top: 1.4em; }
+.ProseMirror h2 { font-size: 1.35rem; margin-top: 1.3em; }
+.ProseMirror h3 { font-size: 1.15rem; margin-top: 1.2em; }
+
+.ProseMirror ul,
+.ProseMirror ol {
+  padding-left: 1.4rem;
+}
+
+.ProseMirror ul { list-style: disc; }
+.ProseMirror ol { list-style: decimal; }
+
+.ProseMirror blockquote {
+  border-left: 2px solid var(--accent-candle);
+  padding-left: 1rem;
+  color: var(--ink-muted);
+  font-style: italic;
+}
+
+.ProseMirror code {
+  font-family: var(--font-mono), monospace;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 0.1em 0.35em;
+  border-radius: 3px;
+  font-size: 0.9em;
+}
+
+.ProseMirror pre {
+  background: var(--bg-abyss);
+  border: 1px solid var(--border-hair);
+  border-radius: 6px;
+  padding: 0.9rem 1rem;
+  overflow-x: auto;
+}
+
+.ProseMirror pre code {
+  background: none;
+  padding: 0;
+}
+
+.ProseMirror a {
+  color: var(--accent-verdigris);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.ProseMirror hr {
+  border: none;
+  border-top: 1px solid var(--border-hair);
+  margin: 1.6em 0;
+}
+
+/* Tables (PRD §19). Scrollable so a wide stat block never widens the page. */
+.ProseMirror table {
+  border-collapse: collapse;
+  width: 100%;
+  table-layout: fixed;
+  overflow: hidden;
+}
+
+.ProseMirror th,
+.ProseMirror td {
+  border: 1px solid var(--border-hair);
+  padding: 0.45rem 0.6rem;
+  vertical-align: top;
+  position: relative;
+}
+
+.ProseMirror th {
+  background: rgba(255, 255, 255, 0.035);
+  font-weight: 600;
+  text-align: left;
+}
+
+.ProseMirror .selectedCell::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(201, 162, 39, 0.14);
+  pointer-events: none;
+}
+
+/* Task lists (PRD §28). */
+.ProseMirror ul[data-type="taskList"] {
+  list-style: none;
+  padding-left: 0.2rem;
+}
+
+.ProseMirror ul[data-type="taskList"] li {
+  display: flex;
+  gap: 0.55rem;
+  align-items: flex-start;
+}
+
+.ProseMirror ul[data-type="taskList"] li > label {
+  margin-top: 0.42em;
+}
+
+.ProseMirror ul[data-type="taskList"] li > div {
+  flex: 1 1 auto;
+}
+
+.ProseMirror ul[data-type="taskList"] li[data-checked="true"] > div {
+  color: var(--ink-faint);
+  text-decoration: line-through;
+}
+
+.ProseMirror input[type="checkbox"] {
+  accent-color: var(--accent-candle);
+}
+
+/* The empty-note prompt. */
+.ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: var(--ink-faint);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+
+/* ------------------------------------------------------------- scrollbars */
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+/* --------------------------------------------------------- reduced motion */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
