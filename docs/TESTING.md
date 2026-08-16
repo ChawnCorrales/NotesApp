@@ -97,6 +97,14 @@ folder lifts its notes and subfolders to the parent instead of cascading. A
 folder whose parent is missing surfaces as a root rather than vanishing, and the
 tree walk terminates even on data that already contains a cycle.
 
+**Trash.** Deleting a note is a soft delete: the note keeps its content, leaves
+the sidebar, search, backlinks, mention counts and the task viewer, and comes
+back whole on restore — including recognising entities that were flagged while
+it sat in the trash. The case worth naming: a campaign-wide re-index must not
+resurrect a trashed note's mentions, which is exactly what would happen without
+an explicit exclusion. Permanent deletion and emptying the trash are covered
+separately.
+
 **Graph.** Entities become nodes, stated relationships become edges, clicking a
 node opens that entity, and three aliases of one entity still produce one node.
 

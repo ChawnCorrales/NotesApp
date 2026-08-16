@@ -28,6 +28,8 @@ browser.
 - **Nested folders** with drag-and-drop filing, plus a keyboard-reachable
   "Move to…" for every drag action. Deleting a folder lifts its contents up a
   level rather than deleting them
+- **Deleting notes** moves them to a **Trash** you can restore from; permanent
+  deletion is a separate, confirmed step
 - **Tabs** with independent Back/Forward history per tab
 - **Menu bar** (File / Edit / View / Insert), a global **+** button, focus mode,
   and a switch for whether the app starts on the Canon or the Mind Map

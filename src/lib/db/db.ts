@@ -87,6 +87,17 @@ export class NotesAppDatabase extends Dexie {
             type.hidden = false;
           });
       });
+
+    this.version(4)
+      .stores({})
+      .upgrade(async (tx) => {
+        await tx
+          .table<Note>("notes")
+          .toCollection()
+          .modify((note) => {
+            note.deletedAt = null;
+          });
+      });
   }
 }
 

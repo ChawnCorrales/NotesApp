@@ -22,6 +22,7 @@ import {
   moveFolder,
   moveNoteToFolder,
   renameFolder,
+  trashNote,
 } from "@/lib/db/repositories";
 import type { Folder, Note } from "@/lib/db/types";
 import {
@@ -63,10 +64,11 @@ export function FolderTree() {
   );
 
   const notes = useLiveQuery(
-    () =>
-      campaignId
-        ? db.notes.where("campaignId").equals(campaignId).toArray()
-        : Promise.resolve<Note[]>([]),
+    async () => {
+      if (!campaignId) return [] as Note[];
+      const all = await db.notes.where("campaignId").equals(campaignId).toArray();
+      return all.filter((note) => note.deletedAt === null);
+    },
     [campaignId],
     [] as Note[],
   );
@@ -142,6 +144,15 @@ export function FolderTree() {
     [campaignId, navigate],
   );
 
+  /**
+   * Deleting a note moves it to the trash. No confirmation, because the action
+   * is reversible — the note is one click from coming back.
+   */
+  const trash = useCallback(async (note: Note) => {
+    await trashNote(note.id);
+    setNotice(`Moved “${note.title || "Untitled note"}” to the trash.`);
+  }, []);
+
   const remove = useCallback(async (folder: Folder) => {
     const result = await deleteFolder(folder.id);
     const moved = result.notesMoved + result.foldersMoved;
@@ -208,6 +219,7 @@ export function FolderTree() {
             onAddNote={(folderId) => void addNote(folderId)}
             onRequestMove={setMoveRequest}
             onRemove={(folder) => void remove(folder)}
+            onDeleteNote={(note) => void trash(note)}
           />
         ))}
       </ul>
@@ -247,6 +259,7 @@ export function FolderTree() {
                 name: note.title || "Untitled note",
               })
             }
+            onDelete={() => void trash(note)}
           />
         ))}
       </ul>
@@ -290,6 +303,7 @@ function FolderRow({
   onAddNote,
   onRequestMove,
   onRemove,
+  onDeleteNote,
 }: {
   node: FolderNode;
   notesByFolder: Map<string | null, Note[]>;
@@ -308,6 +322,7 @@ function FolderRow({
   onAddNote: (folderId: string) => void;
   onRequestMove: (request: MoveRequest) => void;
   onRemove: (folder: Folder) => void;
+  onDeleteNote: (note: Note) => void;
 }) {
   const { folder, children, depth } = node;
   const isOpen = expanded.has(folder.id);
@@ -438,6 +453,7 @@ function FolderRow({
                 onAddNote={onAddNote}
                 onRequestMove={onRequestMove}
                 onRemove={onRemove}
+                onDeleteNote={onDeleteNote}
               />
             ))}
           </ul>
@@ -458,6 +474,7 @@ function FolderRow({
                     name: note.title || "Untitled note",
                   })
                 }
+                onDelete={() => onDeleteNote(note)}
               />
             ))}
           </ul>
@@ -474,6 +491,7 @@ function NoteRow({
   onOpen,
   onDragStart,
   onRequestMove,
+  onDelete,
 }: {
   note: Note;
   depth: number;
@@ -481,6 +499,7 @@ function NoteRow({
   onOpen: () => void;
   onDragStart: () => void;
   onRequestMove: () => void;
+  onDelete: () => void;
 }) {
   const title = note.title || "Untitled note";
 
@@ -505,6 +524,9 @@ function NoteRow({
         <span className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
           <RowButton label={`Move ${title}`} onClick={onRequestMove}>
             ⇄
+          </RowButton>
+          <RowButton label={`Delete ${title}`} onClick={onDelete}>
+            ✕
           </RowButton>
         </span>
       </div>

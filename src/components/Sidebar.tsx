@@ -38,7 +38,11 @@ export function Sidebar() {
             .equals(campaignId)
             .reverse()
             .sortBy("updatedAt")
-            .then((notes) => notes.slice(0, RECENT_LIMIT))
+            // Trashed notes are excluded here rather than by index, because
+            // IndexedDB cannot index a null and `deletedAt` is null while live.
+            .then((notes) =>
+              notes.filter((n) => n.deletedAt === null).slice(0, RECENT_LIMIT),
+            )
         : Promise.resolve<Note[]>([]),
     [campaignId],
     [] as Note[],
@@ -184,6 +188,9 @@ export function Sidebar() {
           </Item>
           <Item active={isActive("graph")} onClick={() => navigate({ kind: "graph" })}>
             Mind map
+          </Item>
+          <Item active={isActive("trash")} onClick={() => navigate({ kind: "trash" })}>
+            Trash
           </Item>
         </Section>
       </div>

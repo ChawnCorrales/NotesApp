@@ -30,6 +30,7 @@ export type View =
   | { kind: "entity"; entityId: string }
   | { kind: "graph" }
   | { kind: "tasks" }
+  | { kind: "trash" }
   | { kind: "search"; query: string };
 
 /** Which view a new tab — and app launch — lands on. */

@@ -43,6 +43,14 @@ export interface Note {
   createdAt: number;
   updatedAt: number;
   syncVersion: number;
+  /**
+   * When the note was moved to the trash, or null while it is live.
+   *
+   * Deleting a note destroys writing, unlike deleting a folder, which only
+   * un-files it. A soft delete keeps the gesture cheap and the mistake
+   * recoverable (PRD §23 lists Trash as a first-class place).
+   */
+  deletedAt: number | null;
 }
 
 export interface Folder {

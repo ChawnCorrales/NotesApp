@@ -26,6 +26,7 @@ import {
   type EntityMatch,
 } from "../entities/recognizer";
 import { parseMarkdownDocument } from "../import/markdown";
+import { deriveTasksFromContent } from "../notes/derive";
 
 const EMPTY_SUPPRESSIONS: ReadonlySet<string> = new Set();
 
@@ -49,6 +50,7 @@ export async function createNote(
     createdAt: now,
     updatedAt: now,
     syncVersion: 0,
+    deletedAt: null,
   };
 
   await db.notes.add(note);
@@ -63,7 +65,61 @@ export async function updateNote(
 }
 
 /**
- * Deletes a note and everything derived from it.
+ * Moves a note to the trash.
+ *
+ * Its mentions and tasks go with it. That is what keeps every other query
+ * honest without each one having to remember to filter: a trashed note stops
+ * appearing in backlinks, mention counts and the task viewer because the rows
+ * those views read are gone, not because each caller checked a flag.
+ *
+ * The note's own content is untouched, so restoring is exact.
+ */
+export async function trashNote(noteId: ID): Promise<void> {
+  await db.transaction("rw", [db.notes, db.entityMentions, db.tasks], async () => {
+    await db.notes.update(noteId, { deletedAt: Date.now() });
+    await db.entityMentions.where("noteId").equals(noteId).delete();
+    await db.tasks.where("noteId").equals(noteId).delete();
+  });
+}
+
+/**
+ * Restores a note from the trash and rebuilds what trashing removed.
+ *
+ * Takes a recogniser rather than reaching for one, so a restore re-indexes
+ * against the campaign's *current* entity vocabulary — a name flagged while the
+ * note sat in the trash is recognised the moment it comes back.
+ */
+export async function restoreNote(
+  noteId: ID,
+  recognizer: { findMatches: (text: string) => EntityMatch[] },
+): Promise<void> {
+  const note = await db.notes.get(noteId);
+  if (!note) return;
+
+  await db.notes.update(noteId, { deletedAt: null });
+  await syncMentionsForNote(noteId, note.campaignId, recognizer.findMatches(note.contentText));
+  await syncTasksForNote(noteId, note.campaignId, deriveTasksFromContent(note.content));
+}
+
+/** Notes currently in the trash, most recently deleted first. */
+export async function listTrashedNotes(campaignId: ID): Promise<Note[]> {
+  const notes = await db.notes.where("campaignId").equals(campaignId).toArray();
+  return notes
+    .filter((n) => n.deletedAt !== null)
+    .sort((a, b) => (b.deletedAt ?? 0) - (a.deletedAt ?? 0));
+}
+
+/** Permanently removes every note in the trash. */
+export async function emptyTrash(campaignId: ID): Promise<number> {
+  const trashed = await listTrashedNotes(campaignId);
+  for (const note of trashed) {
+    await deleteNote(note.id);
+  }
+  return trashed.length;
+}
+
+/**
+ * Permanently deletes a note and everything derived from it.
  *
  * Mentions and tasks are regenerated from note content, so they have no meaning
  * once the note is gone and would otherwise leave phantom backlinks pointing at
@@ -453,10 +509,14 @@ export async function reindexCampaign(
   campaignId: ID,
   recognizer: { findMatches: (text: string) => EntityMatch[] },
 ): Promise<number> {
-  const [notes, suppressions] = await Promise.all([
+  const [allNotes, suppressions] = await Promise.all([
     db.notes.where("campaignId").equals(campaignId).toArray(),
     db.mentionSuppressions.where("campaignId").equals(campaignId).toArray(),
   ]);
+
+  // Trashed notes are excluded, or the next vocabulary change would rebuild
+  // mentions for them and quietly restore their backlinks.
+  const notes = allNotes.filter((note) => note.deletedAt === null);
 
   // Grouped once rather than queried per note: a full reindex over a large
   // campaign would otherwise issue one lookup per note.
