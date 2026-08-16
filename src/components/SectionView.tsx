@@ -9,8 +9,7 @@
 
 import { useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { db } from "@/lib/db/db";
-import { updateEntityType } from "@/lib/db/repositories";
+import { getMentionCounts, updateEntityType } from "@/lib/db/repositories";
 import { useCampaign } from "./campaign-context";
 import { useNavigation } from "./navigation-context";
 import { CreateEntityDialog } from "./CreateEntityDialog";
@@ -33,24 +32,14 @@ export function SectionView({ entityTypeId }: { entityTypeId: string }) {
   }, [entities, entityTypeId, filter]);
 
   /** Note counts per entity, so each card can say how present it is. */
-  const mentionCounts = useLiveQuery(async () => {
-    if (!campaign) return new Map<string, number>();
-    const rows = await db.entityMentions
-      .where("campaignId")
-      .equals(campaign.id)
-      .toArray();
-
-    const notesByEntity = new Map<string, Set<string>>();
-    for (const row of rows) {
-      let set = notesByEntity.get(row.entityId);
-      if (!set) {
-        set = new Set();
-        notesByEntity.set(row.entityId, set);
-      }
-      set.add(row.noteId);
-    }
-    return new Map([...notesByEntity].map(([id, notes]) => [id, notes.size]));
-  }, [campaign?.id, entities], new Map<string, number>());
+  const mentionCounts = useLiveQuery(
+    () =>
+      campaign
+        ? getMentionCounts(campaign.id)
+        : Promise.resolve(new Map<string, number>()),
+    [campaign?.id, entities],
+    new Map<string, number>(),
+  );
 
   if (!type) {
     return (

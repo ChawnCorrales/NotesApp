@@ -142,6 +142,50 @@ never look good because recognition silently stopped working.
   parallelism slows renders enough that debounced recognition starts racing the
   assertions.
 
+## Access patterns and indexes
+
+`tests/integration/access-patterns.test.ts` pins the contract of each indexed
+read — what it includes, excludes, and in what order. Indexes fail invisibly:
+a query that reverts to reading the whole table returns identical answers, just
+slower, so only a shape comparison catches it. That comparison lives in
+`access-patterns-performance.test.ts`, which asserts Recent costs materially
+less than reading the campaign.
+
+**Do not time the mention-count path against `fake-indexeddb`.** Its
+compound-index cursor is pathologically slow — 12,000 keys did not finish in
+three minutes — while the same cursor takes 152ms in Chromium against 277ms to
+load the equivalent rows. Timing against the fake backend would have pushed the
+code toward the option that is *slower* in production. That path is covered for
+correctness only, and was measured in a real browser.
+
+## Migrations
+
+`tests/integration/migrations.test.ts` builds a database under each older
+released schema, seeds it with data shaped the way that version actually wrote
+it, then opens it with the current `NotesAppDatabase` and lets Dexie run the
+upgrades — the same sequence that happens on a real machine.
+
+Every released version is covered, and each is checked for notes and their
+content, entities, categories, aliases, mentions, relationships, folder
+hierarchy, filing, tasks, tags, favourites, visit history, entity groups, and
+false-positive corrections. Repeat upgrades and an empty database are covered
+too.
+
+Two rules make these worth having:
+
+**Assert through the app's queries, not raw table reads.** When `deletedAt`
+became part of an index, every note was still in its table *and* invisible to
+every list in the UI. A test reading `db.notes.toArray()` would have passed
+while the user saw nothing. So the assertions go through `listLiveNotes`,
+`getBacklinks`, `listAliases` and friends.
+
+**`tests/helpers/legacy-db.ts` is frozen history.** Those schema snapshots
+describe what is on real users' machines. Editing one to make a test pass stops
+it describing reality, and the next migration bug ships unnoticed.
+
+These tests were verified to fail: disabling the version 6 repair fails exactly
+the five assertions about note visibility on the versions that wrote `null`.
+
 ## Known gaps
 
 - No test asserts the *visual* treatment of a mention beyond its category

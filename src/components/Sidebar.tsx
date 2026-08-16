@@ -11,8 +11,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { db } from "@/lib/db/db";
-import { createNote } from "@/lib/db/repositories";
+import { createNote, listRecentNotes } from "@/lib/db/repositories";
 import type { Note } from "@/lib/db/types";
 import { useCampaign } from "./campaign-context";
 import { useNavigation } from "./navigation-context";
@@ -30,19 +29,11 @@ export function Sidebar() {
 
   const campaignId = campaign?.id;
 
+  // Reads twelve rows off the index rather than the whole campaign.
   const recentNotes = useLiveQuery(
     () =>
       campaignId
-        ? db.notes
-            .where("campaignId")
-            .equals(campaignId)
-            .reverse()
-            .sortBy("updatedAt")
-            // Trashed notes are excluded here rather than by index, because
-            // IndexedDB cannot index a null and `deletedAt` is null while live.
-            .then((notes) =>
-              notes.filter((n) => n.deletedAt === null).slice(0, RECENT_LIMIT),
-            )
+        ? listRecentNotes(campaignId, RECENT_LIMIT)
         : Promise.resolve<Note[]>([]),
     [campaignId],
     [] as Note[],

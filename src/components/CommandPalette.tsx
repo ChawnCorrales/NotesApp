@@ -11,8 +11,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { db } from "@/lib/db/db";
-import { createNote } from "@/lib/db/repositories";
+import { createNote, listLiveNotes } from "@/lib/db/repositories";
 import type { Note } from "@/lib/db/types";
 import { useCampaign } from "./campaign-context";
 import { useNavigation } from "./navigation-context";
@@ -37,11 +36,7 @@ export function CommandPalette() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const notes = useLiveQuery(
-    async () => {
-      if (!campaign) return [] as Note[];
-      const all = await db.notes.where("campaignId").equals(campaign.id).toArray();
-      return all.filter((note) => note.deletedAt === null);
-    },
+    () => (campaign ? listLiveNotes(campaign.id) : Promise.resolve<Note[]>([])),
     [campaign?.id],
     [] as Note[],
   );

@@ -20,7 +20,7 @@ import {
   type ReactNode,
 } from "react";
 import { db, ensureCampaign } from "@/lib/db/db";
-import { reindexCampaign } from "@/lib/db/repositories";
+import { listAliases, listEntityTypes, reindexCampaign } from "@/lib/db/repositories";
 import type { Campaign, Entity, EntityAlias, EntityType } from "@/lib/db/types";
 import { EntityRecognizer } from "@/lib/entities/recognizer";
 import type { EntityDisplayInfo } from "@/lib/editor/entity-highlight";
@@ -74,26 +74,20 @@ export function CampaignProvider({ children }: { children: ReactNode }) {
     [] as Entity[],
   );
 
+  // Ordered by the index rather than loaded and sorted in memory.
   const entityTypes = useLiveQuery(
-    () =>
-      campaignId
-        ? db.entityTypes.where("campaignId").equals(campaignId).sortBy("sortOrder")
-        : Promise.resolve<EntityType[]>([]),
+    () => (campaignId ? listEntityTypes(campaignId) : Promise.resolve<EntityType[]>([])),
     [campaignId],
     [] as EntityType[],
   );
 
-  /**
-   * Aliases are fetched for the campaign's entities rather than wholesale,
-   * since the table is not campaign-scoped — an alias belongs to an entity,
-   * and the entity carries the campaign.
-   */
-  const aliases = useLiveQuery(async () => {
-    if (!campaignId) return [] as EntityAlias[];
-    const ids = await db.entities.where("campaignId").equals(campaignId).primaryKeys();
-    if (ids.length === 0) return [] as EntityAlias[];
-    return db.entityAliases.where("entityId").anyOf(ids).toArray();
-  }, [campaignId, entities], [] as EntityAlias[]);
+  // Aliases carry their campaign, so this is one indexed read rather than
+  // "fetch every entity id, then anyOf that list".
+  const aliases = useLiveQuery(
+    () => (campaignId ? listAliases(campaignId) : Promise.resolve<EntityAlias[]>([])),
+    [campaignId, entities],
+    [] as EntityAlias[],
+  );
 
   const entityById = useMemo(
     () => new Map(entities.map((e) => [e.id, e])),

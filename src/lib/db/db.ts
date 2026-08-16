@@ -9,6 +9,7 @@
  */
 
 import Dexie, { type Table } from "dexie";
+import { NOT_DELETED } from "./types";
 import type {
   Campaign,
   Entity,
@@ -46,8 +47,13 @@ export class NotesAppDatabase extends Dexie {
   entityGroups!: Table<EntityGroup, string>;
   entityGroupMembers!: Table<EntityGroupMember, string>;
 
-  constructor() {
-    super("notesapp");
+  /**
+   * `name` is a parameter so migration tests can stand up a database under the
+   * historical schema and then open it through this class, exercising the real
+   * upgrade path rather than a reimplementation of it.
+   */
+  constructor(name = "notesapp") {
+    super(name);
 
     this.version(1).stores({
       campaigns: "id, name, updatedAt",
@@ -95,7 +101,81 @@ export class NotesAppDatabase extends Dexie {
           .table<Note>("notes")
           .toCollection()
           .modify((note) => {
-            note.deletedAt = null;
+            note.deletedAt = NOT_DELETED;
+          });
+      });
+
+    /**
+     * Indexes for the queries the UI actually runs.
+     *
+     * The additions all exist to remove a full table read from a path the user
+     * hits constantly:
+     *
+     *  notes[campaignId+deletedAt+updatedAt]  Recent, and every "live notes"
+     *      list. Previously each of these read every note in the campaign and
+     *      filtered in memory, because `deletedAt` was null for live notes and
+     *      IndexedDB will not index null.
+     *  notes[folderId+deletedAt]  Listing or emptying one folder.
+     *  entityMentions[campaignId+entityId+noteId] and [entityId+noteId]
+     *      Mention counts and backlinks are "how many distinct notes", which
+     *      these answer from index keys alone — no row loads. This is the
+     *      heaviest table by far at the PRD's 100,000-mention target.
+     *  entityTypes[campaignId+sortOrder]  Canon section order, previously a
+     *      load-then-sort-in-JS.
+     *  entities[campaignId+entityTypeId]  Entities within one Canon section.
+     *  entityAliases campaignId  Building the recogniser vocabulary was a
+     *      two-step: fetch every entity id, then `anyOf` that list.
+     *
+     * `tasks.completed` is dropped: booleans are not valid IndexedDB keys, so
+     * that index silently held nothing while still costing write work.
+     */
+    this.version(5)
+      .stores({
+        notes:
+          "id, campaignId, folderId, updatedAt, title, [campaignId+updatedAt], [campaignId+deletedAt+updatedAt], [folderId+deletedAt]",
+        entityTypes: "id, campaignId, sortOrder, [campaignId+sortOrder]",
+        entities: "id, campaignId, entityTypeId, name, [campaignId+entityTypeId]",
+        entityAliases: "id, entityId, alias, campaignId",
+        entityMentions:
+          "id, entityId, noteId, campaignId, [noteId+entityId], [entityId+noteId], [campaignId+entityId+noteId]",
+        tasks: "id, campaignId, noteId",
+      })
+      .upgrade(async (tx) => {
+        // Backfill the campaign an alias belongs to, from its entity.
+        const entities = await tx.table<Entity>("entities").toArray();
+        const campaignByEntity = new Map(entities.map((e) => [e.id, e.campaignId]));
+
+        await tx
+          .table<EntityAlias>("entityAliases")
+          .toCollection()
+          .modify((alias) => {
+            alias.campaignId = campaignByEntity.get(alias.entityId) ?? "";
+          });
+      });
+
+    /**
+     * Repairs notes still holding `deletedAt: null`.
+     *
+     * Version 4 originally wrote null, and a database that already ran it keeps
+     * that value — editing a past version's upgrade does not re-run it. Once
+     * version 5 started indexing `deletedAt`, those notes fell out of every
+     * index that includes it, because IndexedDB skips records with a null key.
+     * The notes were intact and completely invisible, which is the worst shape
+     * a bug like this can take.
+     *
+     * Written as a normalisation rather than a null check so it also catches
+     * anything left `undefined` by an interrupted upgrade.
+     */
+    this.version(6)
+      .stores({})
+      .upgrade(async (tx) => {
+        await tx
+          .table<Note>("notes")
+          .toCollection()
+          .modify((note) => {
+            if (typeof note.deletedAt !== "number") {
+              note.deletedAt = NOT_DELETED;
+            }
           });
       });
   }

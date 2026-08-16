@@ -9,6 +9,7 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 import { db } from "@/lib/db/db";
+import { NOT_DELETED } from "@/lib/db/types";
 import {
   createNote,
   deleteNote,
@@ -147,7 +148,7 @@ describe("restoring", () => {
 
     await restoreNote(note.id, await recognizer());
 
-    expect((await db.notes.get(note.id))?.deletedAt).toBeNull();
+    expect((await db.notes.get(note.id))?.deletedAt).toBe(NOT_DELETED);
     expect(await listTrashedNotes(fixture.campaign.id)).toHaveLength(0);
   });
 
@@ -211,7 +212,7 @@ describe("restoring", () => {
 
     await restoreNote(note.id, await recognizer());
 
-    expect((await db.notes.get(note.id))?.deletedAt).toBeNull();
+    expect((await db.notes.get(note.id))?.deletedAt).toBe(NOT_DELETED);
   });
 
   it("is a no-op for a note that no longer exists", async () => {

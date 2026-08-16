@@ -20,6 +20,7 @@ import {
   createNote,
   deleteFolder,
   moveFolder,
+  listLiveNotes,
   moveNoteToFolder,
   renameFolder,
   trashNote,
@@ -64,11 +65,7 @@ export function FolderTree() {
   );
 
   const notes = useLiveQuery(
-    async () => {
-      if (!campaignId) return [] as Note[];
-      const all = await db.notes.where("campaignId").equals(campaignId).toArray();
-      return all.filter((note) => note.deletedAt === null);
-    },
+    () => (campaignId ? listLiveNotes(campaignId) : Promise.resolve<Note[]>([])),
     [campaignId],
     [] as Note[],
   );

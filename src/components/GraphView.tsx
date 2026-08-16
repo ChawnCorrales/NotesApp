@@ -21,7 +21,8 @@ import {
 import "@xyflow/react/dist/style.css";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "@/lib/db/db";
-import type { EntityMention, Relationship } from "@/lib/db/types";
+import { getMentionPairs } from "@/lib/db/repositories";
+import type { Relationship } from "@/lib/db/types";
 import { useCampaign } from "./campaign-context";
 import { useNavigation } from "./navigation-context";
 
@@ -81,13 +82,15 @@ export function GraphView() {
     [] as Relationship[],
   );
 
+  // Only which entities share a note matters here, never the mention text or
+  // offsets, so this reads index keys instead of rows.
   const mentions = useLiveQuery(
     () =>
       campaignId
-        ? db.entityMentions.where("campaignId").equals(campaignId).toArray()
-        : Promise.resolve<EntityMention[]>([]),
+        ? getMentionPairs(campaignId)
+        : Promise.resolve<{ noteId: string; entityId: string }[]>([]),
     [campaignId],
-    [] as EntityMention[],
+    [] as { noteId: string; entityId: string }[],
   );
 
   const visibleEntities = useMemo(

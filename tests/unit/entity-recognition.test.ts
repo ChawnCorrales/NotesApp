@@ -24,7 +24,7 @@ function entity(id: string, name: string, autoLink = true): Entity {
 }
 
 function alias(entityId: string, text: string): EntityAlias {
-  return { id: `${entityId}-${text}`, entityId, alias: text };
+  return { id: `${entityId}-${text}`, entityId, alias: text, campaignId: "c1" };
 }
 
 function recognizerFor(entities: Entity[], aliases: EntityAlias[] = []) {

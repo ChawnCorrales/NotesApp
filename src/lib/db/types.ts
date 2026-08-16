@@ -44,14 +44,23 @@ export interface Note {
   updatedAt: number;
   syncVersion: number;
   /**
-   * When the note was moved to the trash, or null while it is live.
+   * When the note was moved to the trash, or `NOT_DELETED` while it is live.
    *
    * Deleting a note destroys writing, unlike deleting a folder, which only
    * un-files it. A soft delete keeps the gesture cheap and the mistake
    * recoverable (PRD §23 lists Trash as a first-class place).
+   *
+   * Zero rather than null for a storage reason: IndexedDB will not index null,
+   * so a nullable field forces every "live notes" query to read the whole table
+   * and filter in memory. A sentinel keeps `[campaignId+deletedAt+updatedAt]`
+   * usable, which is what turns opening the app from a full scan into a range
+   * read of the twelve most recent notes.
    */
-  deletedAt: number | null;
+  deletedAt: number;
 }
+
+/** `Note.deletedAt` value meaning "not in the trash". */
+export const NOT_DELETED = 0;
 
 export interface Folder {
   id: ID;
@@ -120,6 +129,14 @@ export interface EntityAlias {
   id: ID;
   entityId: ID;
   alias: string;
+  /**
+   * Denormalised from the owning entity.
+   *
+   * Aliases are always fetched a whole campaign at a time, to build the
+   * recogniser. Without this the query is two steps — every entity id, then an
+   * `anyOf` over that list — which grows with the campaign for no reason.
+   */
+  campaignId: ID;
 }
 
 /**

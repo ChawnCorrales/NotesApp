@@ -7,6 +7,7 @@
  */
 
 import { db, newId } from "./db";
+import { NOT_DELETED } from "./types";
 import type {
   Entity,
   EntityAlias,
@@ -30,6 +31,51 @@ import { deriveTasksFromContent } from "../notes/derive";
 
 const EMPTY_SUPPRESSIONS: ReadonlySet<string> = new Set();
 
+/* ------------------------------------------------------- indexed queries */
+
+/**
+ * Range bounds for compound-index scans.
+ *
+ * Written out rather than using `Dexie.minKey`/`Dexie.maxKey`, whose concrete
+ * values depend on what the host environment supports — a string sentinel under
+ * plain Node, an array sentinel once IndexedDB is present. Load-bearing query
+ * bounds should not change shape between the browser and the test runner.
+ *
+ * Ids are strings, so `""` sorts below and `"￿"` above any of them.
+ * Timestamps are numbers, so the infinities bound them exactly.
+ */
+const ID_LOW = "";
+const ID_HIGH = "￿";
+const TIME_LOW = -Infinity;
+const TIME_HIGH = Infinity;
+
+/**
+ * Every live note in a campaign, read through
+ * `[campaignId+deletedAt+updatedAt]`.
+ *
+ * Shared so the several places that need this — search, the folder tree, the
+ * command palette, re-indexing — all get the index rather than each
+ * rediscovering it, and none of them can drift back into reading trashed rows.
+ */
+export function liveNotesQuery(campaignId: ID) {
+  return db.notes
+    .where("[campaignId+deletedAt+updatedAt]")
+    .between(
+      [campaignId, NOT_DELETED, TIME_LOW],
+      [campaignId, NOT_DELETED, TIME_HIGH],
+    );
+}
+
+export async function listLiveNotes(campaignId: ID): Promise<Note[]> {
+  return liveNotesQuery(campaignId).toArray();
+}
+
+/** The `limit` most recently edited live notes, newest first. */
+export async function listRecentNotes(campaignId: ID, limit: number): Promise<Note[]> {
+  // Ordered by the index, so this reads `limit` rows rather than the campaign.
+  return liveNotesQuery(campaignId).reverse().limit(limit).toArray();
+}
+
 /* ------------------------------------------------------------------ notes */
 
 export async function createNote(
@@ -50,7 +96,7 @@ export async function createNote(
     createdAt: now,
     updatedAt: now,
     syncVersion: 0,
-    deletedAt: null,
+    deletedAt: NOT_DELETED,
   };
 
   await db.notes.add(note);
@@ -96,17 +142,27 @@ export async function restoreNote(
   const note = await db.notes.get(noteId);
   if (!note) return;
 
-  await db.notes.update(noteId, { deletedAt: null });
+  await db.notes.update(noteId, { deletedAt: NOT_DELETED });
   await syncMentionsForNote(noteId, note.campaignId, recognizer.findMatches(note.contentText));
   await syncTasksForNote(noteId, note.campaignId, deriveTasksFromContent(note.content));
 }
 
-/** Notes currently in the trash, most recently deleted first. */
+/**
+ * Notes currently in the trash, most recently deleted first.
+ *
+ * Read through the same index as live notes, from just above the sentinel, so
+ * the campaign's live notes are never touched.
+ */
 export async function listTrashedNotes(campaignId: ID): Promise<Note[]> {
-  const notes = await db.notes.where("campaignId").equals(campaignId).toArray();
-  return notes
-    .filter((n) => n.deletedAt !== null)
-    .sort((a, b) => (b.deletedAt ?? 0) - (a.deletedAt ?? 0));
+  const notes = await db.notes
+    .where("[campaignId+deletedAt+updatedAt]")
+    .between(
+      [campaignId, NOT_DELETED + 1, TIME_LOW],
+      [campaignId, TIME_HIGH, TIME_HIGH],
+    )
+    .toArray();
+
+  return notes.sort((a, b) => b.deletedAt - a.deletedAt);
 }
 
 /** Permanently removes every note in the trash. */
@@ -388,7 +444,13 @@ export async function addAlias(entityId: ID, alias: string): Promise<EntityAlias
     .first();
   if (existing) return existing;
 
-  const record: EntityAlias = { id: newId(), entityId, alias: trimmed };
+  const entity = await db.entities.get(entityId);
+  const record: EntityAlias = {
+    id: newId(),
+    entityId,
+    alias: trimmed,
+    campaignId: entity?.campaignId ?? "",
+  };
   await db.entityAliases.add(record);
   return record;
 }
@@ -422,6 +484,7 @@ export async function mergeEntities(sourceId: ID, targetId: ID): Promise<void> {
         id: newId(),
         entityId: targetId,
         alias: source.name,
+        campaignId: source.campaignId,
       });
 
       const inheritedAliases = await db.entityAliases
@@ -509,14 +572,12 @@ export async function reindexCampaign(
   campaignId: ID,
   recognizer: { findMatches: (text: string) => EntityMatch[] },
 ): Promise<number> {
-  const [allNotes, suppressions] = await Promise.all([
-    db.notes.where("campaignId").equals(campaignId).toArray(),
+  // Trashed notes are excluded by the index range, or the next vocabulary
+  // change would rebuild mentions for them and quietly restore their backlinks.
+  const [notes, suppressions] = await Promise.all([
+    listLiveNotes(campaignId),
     db.mentionSuppressions.where("campaignId").equals(campaignId).toArray(),
   ]);
-
-  // Trashed notes are excluded, or the next vocabulary change would rebuild
-  // mentions for them and quietly restore their backlinks.
-  const notes = allNotes.filter((note) => note.deletedAt === null);
 
   // Grouped once rather than queried per note: a full reindex over a large
   // campaign would otherwise issue one lookup per note.
@@ -559,32 +620,81 @@ export async function reindexCampaign(
   return rows.length;
 }
 
-/** Notes that mention `entityId`, most recently edited first (PRD §11, §13). */
+/**
+ * Notes that mention `entityId`, most recently edited first (PRD §11, §13).
+ *
+ * The distinct note ids come from index keys via `[entityId+noteId]`, so an
+ * entity named in a hundred places still costs one key read per distinct note
+ * rather than loading a hundred mention rows to throw most of them away.
+ */
 export async function getBacklinks(entityId: ID): Promise<Note[]> {
-  const mentions = await db.entityMentions.where("entityId").equals(entityId).toArray();
-  const noteIds = [...new Set(mentions.map((m) => m.noteId))];
-  const notes = await db.notes.bulkGet(noteIds);
+  const keys = (await db.entityMentions
+    .where("[entityId+noteId]")
+    .between([entityId, ID_LOW], [entityId, ID_HIGH])
+    .uniqueKeys()) as unknown as [ID, ID][];
+
+  const notes = await db.notes.bulkGet(keys.map(([, noteId]) => noteId));
 
   return notes
     .filter((n): n is Note => Boolean(n))
     .sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
-/** How many notes mention each entity, for popovers and graph node weighting. */
+/**
+ * How many notes mention each entity, for popovers and graph node weighting.
+ *
+ * "How many distinct notes" is answered from `[campaignId+entityId+noteId]`
+ * index keys without loading a single row. This is the query most exposed to
+ * the PRD's 100,000-mention target (§63) — it runs on the Canon, the section
+ * views and the graph.
+ */
 export async function getMentionCounts(campaignId: ID): Promise<Map<ID, number>> {
-  const mentions = await db.entityMentions.where("campaignId").equals(campaignId).toArray();
-  const notesByEntity = new Map<ID, Set<ID>>();
+  const keys = (await db.entityMentions
+    .where("[campaignId+entityId+noteId]")
+    .between(
+      [campaignId, ID_LOW, ID_LOW],
+      [campaignId, ID_HIGH, ID_HIGH],
+    )
+    .uniqueKeys()) as unknown as [ID, ID, ID][];
 
-  for (const mention of mentions) {
-    let set = notesByEntity.get(mention.entityId);
-    if (!set) {
-      set = new Set();
-      notesByEntity.set(mention.entityId, set);
-    }
-    set.add(mention.noteId);
+  const counts = new Map<ID, number>();
+  for (const [, entityId] of keys) {
+    counts.set(entityId, (counts.get(entityId) ?? 0) + 1);
   }
+  return counts;
+}
 
-  return new Map([...notesByEntity].map(([id, notes]) => [id, notes.size]));
+/**
+ * Distinct (noteId, entityId) pairs for a campaign, for co-occurrence.
+ *
+ * The graph only needs to know which entities share a note, never the mention
+ * text or offsets, so this reads index keys instead of rows.
+ */
+export async function getMentionPairs(
+  campaignId: ID,
+): Promise<{ noteId: ID; entityId: ID }[]> {
+  const keys = (await db.entityMentions
+    .where("[campaignId+entityId+noteId]")
+    .between(
+      [campaignId, ID_LOW, ID_LOW],
+      [campaignId, ID_HIGH, ID_HIGH],
+    )
+    .uniqueKeys()) as unknown as [ID, ID, ID][];
+
+  return keys.map(([, entityId, noteId]) => ({ entityId, noteId }));
+}
+
+/** A campaign's aliases, read directly rather than via its entity ids. */
+export async function listAliases(campaignId: ID): Promise<EntityAlias[]> {
+  return db.entityAliases.where("campaignId").equals(campaignId).toArray();
+}
+
+/** A campaign's entity categories, in display order, straight from the index. */
+export async function listEntityTypes(campaignId: ID): Promise<EntityType[]> {
+  return db.entityTypes
+    .where("[campaignId+sortOrder]")
+    .between([campaignId, TIME_LOW], [campaignId, TIME_HIGH])
+    .toArray();
 }
 
 /* ------------------------------------------------------------ suppressions */
