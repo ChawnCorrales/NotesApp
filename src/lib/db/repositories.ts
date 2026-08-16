@@ -13,11 +13,13 @@ import type {
   EntityGroup,
   EntityMention,
   EntityType,
+  Folder,
   ID,
   Note,
   Relationship,
   Task,
 } from "./types";
+import { wouldCreateCycle } from "../folders/tree";
 import {
   filterSuppressed,
   suppressionKey,
@@ -147,6 +149,111 @@ export async function importMarkdownNotes(
   }
 
   return { imported, failed };
+}
+
+/* ---------------------------------------------------------------- folders */
+
+export async function createFolder(
+  campaignId: ID,
+  name: string,
+  parentFolderId: ID | null = null,
+): Promise<Folder> {
+  const folder: Folder = {
+    id: newId(),
+    campaignId,
+    parentFolderId,
+    name: name.trim() || "New folder",
+    createdAt: Date.now(),
+  };
+
+  await db.folders.add(folder);
+  return folder;
+}
+
+export async function renameFolder(folderId: ID, name: string): Promise<void> {
+  const trimmed = name.trim();
+  if (!trimmed) return;
+  await db.folders.update(folderId, { name: trimmed });
+}
+
+export interface MoveFolderResult {
+  moved: boolean;
+  reason?: string;
+}
+
+/**
+ * Reparents a folder, refusing moves that would detach a subtree.
+ *
+ * The check happens here rather than only in the UI because a drop target is
+ * not the only way in — and a folder moved inside itself disappears from the
+ * tree entirely, taking every note under it out of reach.
+ */
+export async function moveFolder(
+  folderId: ID,
+  newParentId: ID | null,
+): Promise<MoveFolderResult> {
+  const folder = await db.folders.get(folderId);
+  if (!folder) return { moved: false, reason: "That folder no longer exists." };
+  if (folder.parentFolderId === newParentId) return { moved: true };
+
+  const siblings = await db.folders
+    .where("campaignId")
+    .equals(folder.campaignId)
+    .toArray();
+
+  if (wouldCreateCycle(siblings, folderId, newParentId)) {
+    return {
+      moved: false,
+      reason: "A folder cannot be moved inside itself.",
+    };
+  }
+
+  await db.folders.update(folderId, { parentFolderId: newParentId });
+  return { moved: true };
+}
+
+/**
+ * Deletes a folder and lifts its contents to the parent.
+ *
+ * Never cascades. A folder is a filing decision, not a container the user
+ * intends to own the notes inside it — deleting "Session logs" should not
+ * delete the sessions.
+ */
+export async function deleteFolder(
+  folderId: ID,
+): Promise<{ notesMoved: number; foldersMoved: number }> {
+  const folder = await db.folders.get(folderId);
+  if (!folder) return { notesMoved: 0, foldersMoved: 0 };
+
+  const parentId = folder.parentFolderId;
+
+  return db.transaction("rw", [db.folders, db.notes], async () => {
+    const childFolders = await db.folders
+      .where("parentFolderId")
+      .equals(folderId)
+      .toArray();
+    await Promise.all(
+      childFolders.map((child) =>
+        db.folders.update(child.id, { parentFolderId: parentId }),
+      ),
+    );
+
+    const notes = await db.notes.where("folderId").equals(folderId).toArray();
+    await Promise.all(
+      notes.map((note) => db.notes.update(note.id, { folderId: parentId })),
+    );
+
+    await db.folders.delete(folderId);
+    return { notesMoved: notes.length, foldersMoved: childFolders.length };
+  });
+}
+
+/** Files a note into a folder, or to the top level when `folderId` is null. */
+export async function moveNoteToFolder(
+  noteId: ID,
+  folderId: ID | null,
+): Promise<void> {
+  await db.notes.update(noteId, { folderId, updatedAt: Date.now() });
 }
 
 /* --------------------------------------------------------------- entities */

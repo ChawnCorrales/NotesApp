@@ -17,6 +17,7 @@ import type { Note } from "@/lib/db/types";
 import { useCampaign } from "./campaign-context";
 import { useNavigation } from "./navigation-context";
 import { ImportMarkdown } from "./ImportMarkdown";
+import { FolderTree } from "./FolderTree";
 
 /** How many recent notes to show before it stops being a shortcut. */
 const RECENT_LIMIT = 12;
@@ -109,16 +110,21 @@ export function Sidebar() {
       </div>
 
       <div className="flex-1 overflow-y-auto px-2 pb-4">
+        {/* Recent is a shortcut list, the folder tree below is the browser.
+            A note can appear in both, the same way an editor lists open files
+            alongside the file tree. */}
         <Section title="Recent">
-          {recentNotes.map((note) => (
-            <Item
-              key={note.id}
-              active={isActive("note", note.id)}
-              onClick={() => navigate({ kind: "note", noteId: note.id })}
-            >
-              {note.title || "Untitled note"}
-            </Item>
-          ))}
+          <div data-testid="recent-notes">
+            {recentNotes.map((note) => (
+              <Item
+                key={note.id}
+                active={isActive("note", note.id)}
+                onClick={() => navigate({ kind: "note", noteId: note.id })}
+              >
+                {note.title || "Untitled note"}
+              </Item>
+            ))}
+          </div>
           {recentNotes.length === 0 && <Empty>No notes yet.</Empty>}
         </Section>
 
@@ -167,6 +173,10 @@ export function Sidebar() {
               );
             })}
         </Section>
+
+        <div className="mt-3">
+          <FolderTree />
+        </div>
 
         <Section title="Campaign">
           <Item active={isActive("tasks")} onClick={() => navigate({ kind: "tasks" })}>

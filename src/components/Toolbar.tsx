@@ -10,7 +10,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { createEntityType, createNote } from "@/lib/db/repositories";
+import { createEntityType, createFolder, createNote } from "@/lib/db/repositories";
 import { useActiveEditor } from "@/lib/editor/active-editor";
 import { useCampaign } from "./campaign-context";
 import { useNavigation } from "./navigation-context";
@@ -88,6 +88,15 @@ export function Toolbar({
           onToggle={() => setOpenMenu(openMenu === "File" ? null : "File")}
         >
           <Item onClick={() => run(() => void newNote())}>New note</Item>
+          <Item
+            onClick={() =>
+              run(() => {
+                if (campaign) void createFolder(campaign.id, "New folder", null);
+              })
+            }
+          >
+            New folder
+          </Item>
           <Item onClick={() => run(() => setCreatingEntity(true))}>New entity</Item>
           <Item
             onClick={() =>

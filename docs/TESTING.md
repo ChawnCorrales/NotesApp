@@ -90,6 +90,13 @@ and create; deleting one that still holds entities is refused rather than
 cascading. Tabs keep independent histories — going Back in one tab cannot move
 another — and closing a tab never leaves the window empty.
 
+**Folders.** Creating, renaming, nesting, and filing notes by drag or by the
+"Move to…" picker. Two rules are pinned hard because breaking either looks like
+data loss: a folder can never be moved inside its own subtree, and deleting a
+folder lifts its notes and subfolders to the parent instead of cascading. A
+folder whose parent is missing surfaces as a root rather than vanishing, and the
+tree walk terminates even on data that already contains a cycle.
+
 **Graph.** Entities become nodes, stated relationships become edges, clicking a
 node opens that entity, and three aliases of one entity still produce one node.
 

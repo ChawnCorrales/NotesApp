@@ -134,9 +134,15 @@ export function backlink(page: Page, title: string) {
   return content(page).getByRole("button", { name: title, exact: true });
 }
 
+/**
+ * Opens a note from the sidebar's Recent list.
+ *
+ * Scoped to Recent because an unfiled note also appears in the folder tree, so
+ * an unscoped query by title matches twice.
+ */
 export async function openSidebarNote(page: Page, title: string): Promise<void> {
   await page
-    .getByRole("navigation", { name: "Campaign navigation" })
+    .getByTestId("recent-notes")
     .getByRole("button", { name: title, exact: true })
     .click();
 }

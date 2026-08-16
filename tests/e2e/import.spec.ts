@@ -70,10 +70,10 @@ test("imports several files at once and reports the count", async ({ page }) => 
 
   await expect(page.getByTestId("import-summary")).toContainText("Imported 3 notes");
 
-  const sidebar = page.getByRole("navigation", { name: "Campaign navigation" });
-  await expect(sidebar.getByRole("button", { name: "Alpha", exact: true })).toBeVisible();
-  await expect(sidebar.getByRole("button", { name: "Beta", exact: true })).toBeVisible();
-  await expect(sidebar.getByRole("button", { name: "Gamma", exact: true })).toBeVisible();
+  const recent = page.getByTestId("recent-notes");
+  await expect(recent.getByRole("button", { name: "Alpha", exact: true })).toBeVisible();
+  await expect(recent.getByRole("button", { name: "Beta", exact: true })).toBeVisible();
+  await expect(recent.getByRole("button", { name: "Gamma", exact: true })).toBeVisible();
 });
 
 test("imported structure survives, including tables and tasks", async ({ page }) => {
@@ -129,7 +129,7 @@ test("imported notes persist across a reload", async ({ page }) => {
   ).toBeVisible();
 
   await page
-    .getByRole("navigation", { name: "Campaign navigation" })
+    .getByTestId("recent-notes")
     .getByRole("button", { name: "Lore", exact: true })
     .click();
 
