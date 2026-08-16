@@ -190,29 +190,48 @@ export interface MentionSuppression {
   occurrenceIndex: number;
 }
 
+/** What a collection can hold. */
+export type CollectionMemberType = "note" | "entity";
+
 /**
- * A user-defined grouping of entities (e.g. "The Traitors", "Session 4 cast").
+ * A conceptual bundle of notes and entities (PRD "Collections").
  *
- * Distinct from EntityType: a type answers "what kind of thing is this" and an
- * entity has exactly one, whereas an entity may belong to any number of groups.
+ * Folders and collections answer different questions and both are needed.
+ * A folder is *storage*: a note lives in exactly one, and moving it changes
+ * where it is. A collection is *meaning*: "Red Queen Investigation" gathers
+ * Session 12, Marrow, Greyhaven and the Ashen Crown without any of them
+ * leaving where they live, and each may belong to several collections at once.
+ *
+ * Replaces the earlier entity-only groups, which could not hold a note.
  */
-export interface EntityGroup {
+export interface Collection {
   id: ID;
   campaignId: ID;
   name: string;
+  description: string;
   /**
-   * Presentation only. Group colour is a display concern and is deliberately
-   * not an identifier — membership is keyed on `groupId`, so recolouring a
-   * group can never change who is in it.
+   * Presentation only. Colour is a display concern and deliberately not an
+   * identifier — membership is keyed on `collectionId`, so recolouring a
+   * collection can never change what is in it.
    */
   colorKey: string;
   createdAt: number;
+  updatedAt: number;
 }
 
-export interface EntityGroupMember {
+/**
+ * One thing's membership of one collection.
+ *
+ * `memberType` plus `memberId` rather than separate note and entity tables:
+ * a collection is browsed as a single mixed list, and splitting it would mean
+ * every read merging two queries and every write choosing a table.
+ */
+export interface CollectionMember {
   id: ID;
-  groupId: ID;
-  entityId: ID;
+  collectionId: ID;
+  memberType: CollectionMemberType;
+  memberId: ID;
+  addedAt: number;
 }
 
 export interface Relationship {

@@ -13,9 +13,10 @@
 import { db, newId } from "../db/db";
 import { NOT_DELETED } from "../db/types";
 import type {
+  Collection,
+  CollectionMemberType,
   Entity,
   EntityAlias,
-  EntityGroup,
   EntityMention,
   EntityType,
   Folder,
@@ -197,9 +198,14 @@ export async function deleteNote(noteId: ID): Promise<void> {
       db.noteTags,
       db.visits,
       db.mentionSuppressions,
+      db.collectionMembers,
     ],
     async () => {
       await db.notes.delete(noteId);
+      await db.collectionMembers
+        .where("[memberType+memberId]")
+        .equals(["note", noteId])
+        .delete();
       await db.entityMentions.where("noteId").equals(noteId).delete();
       await db.tasks.where("noteId").equals(noteId).delete();
       await db.favorites.where("noteId").equals(noteId).delete();
@@ -423,7 +429,7 @@ export async function deleteEntity(entityId: ID): Promise<void> {
       db.entityMentions,
       db.relationships,
       db.mentionSuppressions,
-      db.entityGroupMembers,
+      db.collectionMembers,
     ],
     async () => {
       await db.entities.delete(entityId);
@@ -432,7 +438,12 @@ export async function deleteEntity(entityId: ID): Promise<void> {
       await db.relationships.where("sourceEntityId").equals(entityId).delete();
       await db.relationships.where("targetEntityId").equals(entityId).delete();
       await db.mentionSuppressions.where("entityId").equals(entityId).delete();
-      await db.entityGroupMembers.where("entityId").equals(entityId).delete();
+      // Collection memberships referring to a deleted entity would otherwise
+      // leave the collection listing something that no longer exists.
+      await db.collectionMembers
+        .where("[memberType+memberId]")
+        .equals(["entity", entityId])
+        .delete();
     },
   );
 }
@@ -756,77 +767,155 @@ export async function getSuppressionKeysForNote(
   return new Set(rows.map((r) => suppressionKey(r.entityId, r.occurrenceIndex)));
 }
 
-/* ----------------------------------------------------------------- groups */
+/* ------------------------------------------------------------ collections */
 
-export async function createEntityGroup(
+export async function createCollection(
   campaignId: ID,
   name: string,
   colorKey = "concept",
-): Promise<EntityGroup> {
-  const group: EntityGroup = {
+): Promise<Collection> {
+  const now = Date.now();
+  const collection: Collection = {
     id: newId(),
     campaignId,
-    name: name.trim(),
+    name: name.trim() || "New collection",
+    description: "",
     colorKey,
-    createdAt: Date.now(),
+    createdAt: now,
+    updatedAt: now,
   };
-  await db.entityGroups.add(group);
-  return group;
+  await db.collections.add(collection);
+  return collection;
 }
 
 /**
- * Recolours a group.
+ * Updates a collection's own fields.
  *
- * Membership is keyed on the group's id, so this touches presentation only —
- * nothing about which entities belong, or about the entities themselves.
+ * Membership is keyed on the collection's id, so nothing here — including a
+ * recolour — can change what is in it.
  */
-export async function setEntityGroupColor(
-  groupId: ID,
-  colorKey: string,
+export async function updateCollection(
+  collectionId: ID,
+  changes: Partial<Pick<Collection, "name" | "description" | "colorKey">>,
 ): Promise<void> {
-  await db.entityGroups.update(groupId, { colorKey });
+  const next = { ...changes, updatedAt: Date.now() };
+  if (typeof next.name === "string") next.name = next.name.trim();
+  await db.collections.update(collectionId, next);
 }
 
-/** Adds an entity to a group. An entity may belong to any number of groups. */
-export async function addEntityToGroup(
-  groupId: ID,
-  entityId: ID,
+/**
+ * Deletes a collection and its memberships, never its contents.
+ *
+ * A collection is a statement about notes and entities, not a container that
+ * owns them. Deleting "Red Queen Investigation" must not delete Marrow.
+ */
+export async function deleteCollection(collectionId: ID): Promise<void> {
+  await db.transaction("rw", [db.collections, db.collectionMembers], async () => {
+    await db.collectionMembers.where("collectionId").equals(collectionId).delete();
+    await db.collections.delete(collectionId);
+  });
+}
+
+export async function listCollections(campaignId: ID): Promise<Collection[]> {
+  const collections = await db.collections
+    .where("campaignId")
+    .equals(campaignId)
+    .toArray();
+  return collections.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export async function getCollection(collectionId: ID): Promise<Collection | undefined> {
+  return db.collections.get(collectionId);
+}
+
+/** Adds a note or entity. Membership is idempotent and unordered. */
+export async function addToCollection(
+  collectionId: ID,
+  memberType: CollectionMemberType,
+  memberId: ID,
 ): Promise<void> {
-  const existing = await db.entityGroupMembers
-    .where("[groupId+entityId]")
-    .equals([groupId, entityId])
+  const existing = await db.collectionMembers
+    .where("[collectionId+memberType+memberId]")
+    .equals([collectionId, memberType, memberId])
     .first();
   if (existing) return;
 
-  await db.entityGroupMembers.add({ id: newId(), groupId, entityId });
+  await db.collectionMembers.add({
+    id: newId(),
+    collectionId,
+    memberType,
+    memberId,
+    addedAt: Date.now(),
+  });
 }
 
-export async function removeEntityFromGroup(
-  groupId: ID,
-  entityId: ID,
+export async function removeFromCollection(
+  collectionId: ID,
+  memberType: CollectionMemberType,
+  memberId: ID,
 ): Promise<void> {
-  await db.entityGroupMembers
-    .where("[groupId+entityId]")
-    .equals([groupId, entityId])
+  await db.collectionMembers
+    .where("[collectionId+memberType+memberId]")
+    .equals([collectionId, memberType, memberId])
     .delete();
 }
 
-export async function getGroupsForEntity(entityId: ID): Promise<EntityGroup[]> {
-  const members = await db.entityGroupMembers
-    .where("entityId")
-    .equals(entityId)
-    .toArray();
-  const groups = await db.entityGroups.bulkGet(members.map((m) => m.groupId));
-  return groups.filter((g): g is EntityGroup => Boolean(g));
+export interface CollectionContents {
+  notes: Note[];
+  entities: Entity[];
 }
 
-export async function getEntitiesInGroup(groupId: ID): Promise<Entity[]> {
-  const members = await db.entityGroupMembers
-    .where("groupId")
-    .equals(groupId)
+/**
+ * What is in a collection.
+ *
+ * Trashed notes are filtered out: a deleted note should not keep appearing in
+ * a collection, but its membership is left in place so restoring it puts the
+ * note back where it was.
+ */
+export async function getCollectionContents(
+  collectionId: ID,
+): Promise<CollectionContents> {
+  const members = await db.collectionMembers
+    .where("collectionId")
+    .equals(collectionId)
     .toArray();
-  const entities = await db.entities.bulkGet(members.map((m) => m.entityId));
-  return entities.filter((e): e is Entity => Boolean(e));
+
+  const noteIds = members.filter((m) => m.memberType === "note").map((m) => m.memberId);
+  const entityIds = members
+    .filter((m) => m.memberType === "entity")
+    .map((m) => m.memberId);
+
+  const [notes, entities] = await Promise.all([
+    db.notes.bulkGet(noteIds),
+    db.entities.bulkGet(entityIds),
+  ]);
+
+  return {
+    notes: notes
+      .filter((n): n is Note => Boolean(n) && n!.deletedAt === NOT_DELETED)
+      .sort((a, b) => b.updatedAt - a.updatedAt),
+    entities: entities
+      .filter((e): e is Entity => Boolean(e))
+      .sort((a, b) => a.name.localeCompare(b.name)),
+  };
+}
+
+/** The collections a note or entity belongs to. */
+export async function getCollectionsForMember(
+  memberType: CollectionMemberType,
+  memberId: ID,
+): Promise<Collection[]> {
+  const members = await db.collectionMembers
+    .where("[memberType+memberId]")
+    .equals([memberType, memberId])
+    .toArray();
+
+  const collections = await db.collections.bulkGet(
+    members.map((m) => m.collectionId),
+  );
+  return collections
+    .filter((c): c is Collection => Boolean(c))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /* ---------------------------------------------------------- relationships */

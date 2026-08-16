@@ -102,13 +102,23 @@ export {
   getEntityCountsByType,
   type DeleteSectionResult,
 } from "./repository";
+/**
+ * Collections: conceptual bundles of notes *and* entities.
+ *
+ * Distinct from folders, which are storage. A note lives in one folder and may
+ * belong to many collections.
+ */
 export {
-  createEntityGroup,
-  setEntityGroupColor,
-  addEntityToGroup,
-  removeEntityFromGroup,
-  getGroupsForEntity,
-  getEntitiesInGroup,
+  createCollection,
+  updateCollection,
+  deleteCollection,
+  listCollections,
+  getCollection,
+  addToCollection,
+  removeFromCollection,
+  getCollectionContents,
+  getCollectionsForMember,
+  type CollectionContents,
 } from "./repository";
 export { syncTasksForNote } from "./repository";
 export { listTasks, listEntityTypesUnordered } from "./reads";
