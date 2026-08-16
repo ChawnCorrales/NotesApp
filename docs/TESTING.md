@@ -142,7 +142,31 @@ never look good because recognition silently stopped working.
   parallelism slows renders enough that debounced recognition starts racing the
   assertions.
 
+## Access patterns and indexes
+
+`tests/integration/access-patterns.test.ts` pins the contract of each indexed
+read — what it includes, excludes, and in what order. Indexes fail invisibly:
+a query that reverts to reading the whole table returns identical answers, just
+slower, so only a shape comparison catches it. That comparison lives in
+`access-patterns-performance.test.ts`, which asserts Recent costs materially
+less than reading the campaign.
+
+**Do not time the mention-count path against `fake-indexeddb`.** Its
+compound-index cursor is pathologically slow — 12,000 keys did not finish in
+three minutes — while the same cursor takes 152ms in Chromium against 277ms to
+load the equivalent rows. Timing against the fake backend would have pushed the
+code toward the option that is *slower* in production. That path is covered for
+correctness only, and was measured in a real browser.
+
 ## Known gaps
+
+- **Migration paths have no tests.** This is a real gap, not a theoretical one:
+  editing an already-applied Dexie version's upgrade does not re-run it, which
+  left existing notes holding `deletedAt: null`. Once that field became part of
+  an index, IndexedDB skipped those records and the notes vanished from every
+  list while sitting intact in storage. A repair migration fixed it, and
+  `access-patterns.test.ts` now states the invariant, but nothing exercises an
+  actual version-to-version upgrade.
 
 - No test asserts the *visual* treatment of a mention beyond its category
   attribute. Entity styling is deliberately subtle and would make for brittle

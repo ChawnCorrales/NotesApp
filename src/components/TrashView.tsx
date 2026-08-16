@@ -10,13 +10,17 @@
 
 import { useCallback, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { db } from "@/lib/db/db";
-import { deleteNote, emptyTrash, restoreNote } from "@/lib/db/repositories";
+import {
+  deleteNote,
+  emptyTrash,
+  listTrashedNotes,
+  restoreNote,
+} from "@/lib/db/repositories";
 import type { Note } from "@/lib/db/types";
 import { useCampaign } from "./campaign-context";
 import { useNavigation } from "./navigation-context";
 
-function deletedWhen(timestamp: number | null): string {
+function deletedWhen(timestamp: number): string {
   if (!timestamp) return "";
   const days = Math.floor((Date.now() - timestamp) / 86_400_000);
   if (days <= 0) return "today";
@@ -31,13 +35,7 @@ export function TrashView() {
   const [confirmingEmpty, setConfirmingEmpty] = useState(false);
 
   const trashed = useLiveQuery(
-    async () => {
-      if (!campaign) return [] as Note[];
-      const notes = await db.notes.where("campaignId").equals(campaign.id).toArray();
-      return notes
-        .filter((n) => n.deletedAt !== null)
-        .sort((a, b) => (b.deletedAt ?? 0) - (a.deletedAt ?? 0));
-    },
+    () => (campaign ? listTrashedNotes(campaign.id) : Promise.resolve<Note[]>([])),
     [campaign?.id],
     [] as Note[],
   );

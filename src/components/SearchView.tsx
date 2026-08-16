@@ -11,7 +11,7 @@
 
 import { useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { db } from "@/lib/db/db";
+import { listLiveNotes } from "@/lib/db/repositories";
 import type { Entity, Note } from "@/lib/db/types";
 import { useCampaign } from "./campaign-context";
 import { useNavigation } from "./navigation-context";
@@ -40,11 +40,7 @@ export function SearchView({ query }: { query: string }) {
   const needle = liveQuery.trim().toLowerCase();
 
   const notes = useLiveQuery(
-    async () => {
-      if (!campaign) return [] as Note[];
-      const all = await db.notes.where("campaignId").equals(campaign.id).toArray();
-      return all.filter((note) => note.deletedAt === null);
-    },
+    () => (campaign ? listLiveNotes(campaign.id) : Promise.resolve<Note[]>([])),
     [campaign?.id],
     [] as Note[],
   );
