@@ -7,7 +7,7 @@
  */
 
 import { beforeEach, describe, expect, it } from "vitest";
-import { getBacklinks, getMentionCounts } from "@/lib/db/repositories";
+import { getBacklinks, getMentionCounts } from "@/lib/services";
 import {
   createNoteWithText,
   createNpc,

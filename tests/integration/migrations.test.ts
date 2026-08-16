@@ -25,7 +25,7 @@ import {
   listLiveNotes,
   listRecentNotes,
   listTrashedNotes,
-} from "@/lib/db/repositories";
+} from "@/lib/services";
 import { NOT_DELETED } from "@/lib/db/types";
 import { buildFolderTree } from "@/lib/folders/tree";
 import {

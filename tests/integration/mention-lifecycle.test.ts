@@ -8,7 +8,7 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 import { db } from "@/lib/db/db";
-import { createNote } from "@/lib/db/repositories";
+import { createNote } from "@/lib/services";
 import {
   createNpc,
   createTestCampaign,
@@ -141,7 +141,7 @@ describe("mention lifecycle", () => {
     const note = await createNote(campaign.id);
     await writeNote(campaign.id, note.id, "Marrow greets the party.");
 
-    const { deleteNote } = await import("@/lib/db/repositories");
+    const { deleteNote } = await import("@/lib/services");
     await deleteNote(note.id);
 
     expect(await mentionsFor(note.id)).toHaveLength(0);

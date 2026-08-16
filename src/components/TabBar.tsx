@@ -9,7 +9,7 @@
  */
 
 import { useLiveQuery } from "dexie-react-hooks";
-import { db } from "@/lib/db/db";
+import { getNote } from "@/lib/services";
 import type { Note } from "@/lib/db/types";
 import { useCampaign } from "./campaign-context";
 import { useNavigation, type View } from "./navigation-context";
@@ -39,7 +39,7 @@ function useTabLabel(view: View): Label {
   const note = useLiveQuery(
     () =>
       view.kind === "note"
-        ? db.notes.get(view.noteId)
+        ? getNote(view.noteId)
         : Promise.resolve<Note | undefined>(undefined),
     [view.kind === "note" ? view.noteId : null],
   );

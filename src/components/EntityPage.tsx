@@ -11,15 +11,19 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { db } from "@/lib/db/db";
 import {
   addAlias,
   createRelationship,
   deleteRelationship,
+  getBacklinks,
+  getEntity,
+  getEntityRelationships,
+  listAliasesForEntity,
+  listMentionsForEntity,
   removeAlias,
   renameEntity,
   updateEntity,
-} from "@/lib/db/repositories";
+} from "@/lib/services";
 import type {
   EntityAlias,
   EntityMention,
@@ -33,41 +37,32 @@ export function EntityPage({ entityId }: { entityId: string }) {
   const { entities, entityTypes, entityById, typeById } = useCampaign();
   const { navigate } = useNavigation();
 
-  const entity = useLiveQuery(() => db.entities.get(entityId), [entityId]);
+  const entity = useLiveQuery(() => getEntity(entityId), [entityId]);
 
   const aliases = useLiveQuery(
-    () => db.entityAliases.where("entityId").equals(entityId).toArray(),
+    () => listAliasesForEntity(entityId),
     [entityId],
     [] as EntityAlias[],
   );
 
   const mentions = useLiveQuery(
-    () => db.entityMentions.where("entityId").equals(entityId).toArray(),
+    () => listMentionsForEntity(entityId),
     [entityId],
     [] as EntityMention[],
   );
 
   const relationships = useLiveQuery(
-    async () => {
-      const [outgoing, incoming] = await Promise.all([
-        db.relationships.where("sourceEntityId").equals(entityId).toArray(),
-        db.relationships.where("targetEntityId").equals(entityId).toArray(),
-      ]);
-      return { outgoing, incoming };
-    },
+    () => getEntityRelationships(entityId),
     [entityId],
     { outgoing: [] as Relationship[], incoming: [] as Relationship[] },
   );
 
   /** Notes mentioning this entity, newest first — the §13 backlinks list. */
-  const mentioningNotes = useLiveQuery(async () => {
-    const rows = await db.entityMentions.where("entityId").equals(entityId).toArray();
-    const noteIds = [...new Set(rows.map((m) => m.noteId))];
-    const notes = await db.notes.bulkGet(noteIds);
-    return notes
-      .filter((n): n is Note => Boolean(n))
-      .sort((a, b) => b.updatedAt - a.updatedAt);
-  }, [entityId, mentions], [] as Note[]);
+  const mentioningNotes = useLiveQuery(
+    () => getBacklinks(entityId),
+    [entityId, mentions],
+    [] as Note[],
+  );
 
   const [aliasDraft, setAliasDraft] = useState("");
   const [relationTarget, setRelationTarget] = useState("");

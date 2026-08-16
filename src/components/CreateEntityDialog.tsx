@@ -11,7 +11,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createEntity, addAlias } from "@/lib/db/repositories";
+import { createEntity, addAlias } from "@/lib/services";
 import { useCampaign } from "./campaign-context";
 import { useNavigation } from "./navigation-context";
 

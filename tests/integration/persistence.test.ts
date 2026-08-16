@@ -15,7 +15,7 @@ import {
   getBacklinks,
   reindexCampaign,
   suppressMention,
-} from "@/lib/db/repositories";
+} from "@/lib/services";
 import {
   buildRecognizer,
   createNoteWithText,

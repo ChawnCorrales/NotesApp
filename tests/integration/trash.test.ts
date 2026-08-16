@@ -20,7 +20,7 @@ import {
   reindexCampaign,
   restoreNote,
   trashNote,
-} from "@/lib/db/repositories";
+} from "@/lib/services";
 import {
   buildRecognizer,
   createNoteWithText,

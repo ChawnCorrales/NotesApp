@@ -21,7 +21,7 @@
 
 import { beforeAll, describe, expect, it } from "vitest";
 import { db, newId } from "@/lib/db/db";
-import { listLiveNotes, listRecentNotes, listTrashedNotes } from "@/lib/db/repositories";
+import { listLiveNotes, listRecentNotes, listTrashedNotes } from "@/lib/services";
 import { NOT_DELETED, type Note } from "@/lib/db/types";
 import { createTestCampaign, resetDatabase } from "../helpers/campaign";
 

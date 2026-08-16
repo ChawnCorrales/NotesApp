@@ -14,7 +14,7 @@ import {
   reindexCampaign,
   suppressMention,
   unsuppressMention,
-} from "@/lib/db/repositories";
+} from "@/lib/services";
 import { filterSuppressed, suppressionKey } from "@/lib/entities/recognizer";
 import {
   buildRecognizer,

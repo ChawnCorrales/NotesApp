@@ -16,7 +16,7 @@ import {
   reindexCampaign,
   removeAlias,
   renameEntity,
-} from "@/lib/db/repositories";
+} from "@/lib/services";
 import {
   buildRecognizer,
   createNoteWithText,
@@ -170,7 +170,7 @@ describe("merging duplicate entities", () => {
     const note = await createNoteWithText(campaign.id, "S1", "Old Marrow waits.");
     expect((await getBacklinks(duplicate.id)).map((n) => n.id)).toEqual([note.id]);
 
-    const { mergeEntities } = await import("@/lib/db/repositories");
+    const { mergeEntities } = await import("@/lib/services");
     await mergeEntities(duplicate.id, keep.id);
     await reindexCampaign(campaign.id, await buildRecognizer(campaign.id));
 

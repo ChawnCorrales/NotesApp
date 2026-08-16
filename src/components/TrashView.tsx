@@ -15,7 +15,7 @@ import {
   emptyTrash,
   listTrashedNotes,
   restoreNote,
-} from "@/lib/db/repositories";
+} from "@/lib/services";
 import type { Note } from "@/lib/db/types";
 import { useCampaign } from "./campaign-context";
 import { useNavigation } from "./navigation-context";

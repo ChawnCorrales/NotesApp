@@ -17,7 +17,7 @@ import {
   deleteEntityType,
   reorderEntityTypes,
   updateEntityType,
-} from "@/lib/db/repositories";
+} from "@/lib/services";
 import type { EntityType } from "@/lib/db/types";
 import { useCampaign } from "./campaign-context";
 import { useNavigation } from "./navigation-context";

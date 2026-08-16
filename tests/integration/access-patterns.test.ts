@@ -26,7 +26,7 @@ import {
   listTrashedNotes,
   reorderEntityTypes,
   trashNote,
-} from "@/lib/db/repositories";
+} from "@/lib/services";
 import { NOT_DELETED } from "@/lib/db/types";
 import {
   createNoteWithText,
@@ -112,7 +112,7 @@ describe("the deletedAt invariant", () => {
     await trashNote(created.id);
     expect(typeof (await db.notes.get(created.id))?.deletedAt).toBe("number");
 
-    const { restoreNote } = await import("@/lib/db/repositories");
+    const { restoreNote } = await import("@/lib/services");
     const { EntityRecognizer } = await import("@/lib/entities/recognizer");
     await restoreNote(created.id, new EntityRecognizer([]));
     expect((await db.notes.get(created.id))?.deletedAt).toBe(NOT_DELETED);

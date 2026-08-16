@@ -8,7 +8,7 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 import { db } from "@/lib/db/db";
-import { getBacklinks, importMarkdownNotes } from "@/lib/db/repositories";
+import { getBacklinks, importMarkdownNotes } from "@/lib/services";
 import {
   buildRecognizer,
   createNpc,

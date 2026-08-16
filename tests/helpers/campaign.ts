@@ -8,7 +8,7 @@
  */
 
 import { db, newId } from "@/lib/db/db";
-import { createEntity, createNote, syncMentionsForNote } from "@/lib/db/repositories";
+import { createEntity, createNote, syncMentionsForNote } from "@/lib/services";
 import type { Campaign, Entity, EntityType, Note } from "@/lib/db/types";
 import { EntityRecognizer } from "@/lib/entities/recognizer";
 

@@ -14,17 +14,17 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { db } from "@/lib/db/db";
 import {
   createFolder,
   createNote,
   deleteFolder,
   moveFolder,
+  listFolders,
   listLiveNotes,
   moveNoteToFolder,
   renameFolder,
   trashNote,
-} from "@/lib/db/repositories";
+} from "@/lib/services";
 import type { Folder, Note } from "@/lib/db/types";
 import {
   allFolderTargets,
@@ -56,10 +56,7 @@ export function FolderTree() {
   const campaignId = campaign?.id;
 
   const folders = useLiveQuery(
-    () =>
-      campaignId
-        ? db.folders.where("campaignId").equals(campaignId).toArray()
-        : Promise.resolve<Folder[]>([]),
+    () => (campaignId ? listFolders(campaignId) : Promise.resolve<Folder[]>([])),
     [campaignId],
     [] as Folder[],
   );

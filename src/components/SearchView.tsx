@@ -11,26 +11,10 @@
 
 import { useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { listLiveNotes } from "@/lib/db/repositories";
-import type { Entity, Note } from "@/lib/db/types";
+import { listLiveNotes, searchEntities, searchNotes } from "@/lib/services";
+import type { Note } from "@/lib/db/types";
 import { useCampaign } from "./campaign-context";
 import { useNavigation } from "./navigation-context";
-
-/** Characters of surrounding text to show around a hit. */
-const SNIPPET_RADIUS = 90;
-
-interface NoteHit {
-  note: Note;
-  snippet: string;
-}
-
-function buildSnippet(text: string, index: number, queryLength: number): string {
-  const start = Math.max(0, index - SNIPPET_RADIUS);
-  const end = Math.min(text.length, index + queryLength + SNIPPET_RADIUS);
-  const prefix = start > 0 ? "…" : "";
-  const suffix = end < text.length ? "…" : "";
-  return `${prefix}${text.slice(start, end).replace(/\s+/g, " ").trim()}${suffix}`;
-}
 
 export function SearchView({ query }: { query: string }) {
   const { campaign, entities, aliases, typeById } = useCampaign();
@@ -45,53 +29,13 @@ export function SearchView({ query }: { query: string }) {
     [] as Note[],
   );
 
-  const noteHits = useMemo<NoteHit[]>(() => {
-    if (!needle) return [];
+  // Matching lives in the search service; this component only renders results.
+  const noteHits = useMemo(() => searchNotes(notes, liveQuery), [notes, liveQuery]);
 
-    const hits: NoteHit[] = [];
-    for (const note of notes) {
-      const haystack = `${note.title}\n${note.contentText}`.toLowerCase();
-      const index = haystack.indexOf(needle);
-      if (index === -1) continue;
-
-      const contentIndex = note.contentText.toLowerCase().indexOf(needle);
-      hits.push({
-        note,
-        snippet:
-          contentIndex >= 0
-            ? buildSnippet(note.contentText, contentIndex, needle.length)
-            : "",
-      });
-    }
-
-    return hits.sort((a, b) => b.note.updatedAt - a.note.updatedAt);
-  }, [notes, needle]);
-
-  /** Entity matches, including via alias — searching "Verena" must find the Red Queen. */
-  const entityHits = useMemo<{ entity: Entity; via: string | null }[]>(() => {
-    if (!needle) return [];
-
-    const aliasesByEntity = new Map<string, string[]>();
-    for (const alias of aliases) {
-      const list = aliasesByEntity.get(alias.entityId) ?? [];
-      list.push(alias.alias);
-      aliasesByEntity.set(alias.entityId, list);
-    }
-
-    const hits: { entity: Entity; via: string | null }[] = [];
-    for (const entity of entities) {
-      if (entity.name.toLowerCase().includes(needle)) {
-        hits.push({ entity, via: null });
-        continue;
-      }
-      const matchedAlias = (aliasesByEntity.get(entity.id) ?? []).find((a) =>
-        a.toLowerCase().includes(needle),
-      );
-      if (matchedAlias) hits.push({ entity, via: matchedAlias });
-    }
-
-    return hits;
-  }, [entities, aliases, needle]);
+  const entityHits = useMemo(
+    () => searchEntities(entities, aliases, liveQuery),
+    [entities, aliases, liveQuery],
+  );
 
   return (
     <div className="h-full overflow-y-auto px-8 py-6">

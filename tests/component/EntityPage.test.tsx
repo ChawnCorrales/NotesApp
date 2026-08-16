@@ -13,7 +13,7 @@ import { CampaignProvider } from "@/components/campaign-context";
 import { NavigationProvider } from "@/components/navigation-context";
 import { EntityPage } from "@/components/EntityPage";
 import { db } from "@/lib/db/db";
-import { createRelationship, getBacklinks } from "@/lib/db/repositories";
+import { createRelationship, getBacklinks } from "@/lib/services";
 import {
   createNoteWithText,
   createNpc,

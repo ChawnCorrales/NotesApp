@@ -10,7 +10,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { importMarkdownNotes, type ImportOutcome } from "@/lib/db/repositories";
+import { importMarkdownNotes, type ImportOutcome } from "@/lib/services";
 import { registerImportTrigger } from "@/lib/import/import-trigger";
 import { useCampaign } from "./campaign-context";
 import { useNavigation } from "./navigation-context";

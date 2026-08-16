@@ -10,7 +10,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { createEntityType, createFolder, createNote } from "@/lib/db/repositories";
+import { createEntityType, createFolder, createNote } from "@/lib/services";
 import { useActiveEditor } from "@/lib/editor/active-editor";
 import { useCampaign } from "./campaign-context";
 import { useNavigation } from "./navigation-context";

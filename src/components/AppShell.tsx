@@ -9,7 +9,7 @@
  */
 
 import { useCallback, useState } from "react";
-import { createNote } from "@/lib/db/repositories";
+import { createNote } from "@/lib/services";
 import { triggerMarkdownImport } from "@/lib/import/import-trigger";
 import { useCampaign } from "./campaign-context";
 import { useNavigation } from "./navigation-context";

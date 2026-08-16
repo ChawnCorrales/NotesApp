@@ -17,7 +17,7 @@ import {
   getGroupsForEntity,
   removeEntityFromGroup,
   setEntityGroupColor,
-} from "@/lib/db/repositories";
+} from "@/lib/services";
 import {
   createNpc,
   createTestCampaign,
@@ -186,7 +186,7 @@ describe("groups and recognition", () => {
     const group = await createEntityGroup(campaign.id, "The Traitors");
     await addEntityToGroup(group.id, marrow.id);
 
-    const { deleteEntity } = await import("@/lib/db/repositories");
+    const { deleteEntity } = await import("@/lib/services");
     await deleteEntity(marrow.id);
 
     expect(await getEntitiesInGroup(group.id)).toHaveLength(0);

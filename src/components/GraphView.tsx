@@ -20,14 +20,9 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useLiveQuery } from "dexie-react-hooks";
-import { db } from "@/lib/db/db";
-import { getMentionPairs } from "@/lib/db/repositories";
-import type { Relationship } from "@/lib/db/types";
+import { getCampaignGraph, type CampaignGraph } from "@/lib/services";
 import { useCampaign } from "./campaign-context";
 import { useNavigation } from "./navigation-context";
-
-/** Co-occurrence below this many shared notes is noise, not a signal. */
-const CO_OCCURRENCE_THRESHOLD = 2;
 
 /* Node sizing, estimated from the label at the graph's fixed 12px font. */
 const NODE_PADDING_X = 28;
@@ -73,24 +68,20 @@ export function GraphView() {
 
   const campaignId = campaign?.id;
 
-  const relationships = useLiveQuery(
+  /**
+   * The campaign graph as a domain object.
+   *
+   * Which entities are connected, and why, is decided by the graph service —
+   * this component only decides how an edge looks. That split is what would let
+   * a server answer the same question later without the view changing.
+   */
+  const graph = useLiveQuery(
     () =>
       campaignId
-        ? db.relationships.where("campaignId").equals(campaignId).toArray()
-        : Promise.resolve<Relationship[]>([]),
+        ? getCampaignGraph(campaignId)
+        : Promise.resolve<CampaignGraph>({ edges: [] }),
     [campaignId],
-    [] as Relationship[],
-  );
-
-  // Only which entities share a note matters here, never the mention text or
-  // offsets, so this reads index keys instead of rows.
-  const mentions = useLiveQuery(
-    () =>
-      campaignId
-        ? getMentionPairs(campaignId)
-        : Promise.resolve<{ noteId: string; entityId: string }[]>([]),
-    [campaignId],
-    [] as { noteId: string; entityId: string }[],
+    { edges: [] } as CampaignGraph,
   );
 
   const visibleEntities = useMemo(
@@ -170,86 +161,39 @@ export function GraphView() {
   }, [visibleEntities, typeById]);
 
   /**
-   * Pairs of entities that appear together in at least two notes.
+   * Styling for the edges the service produced.
    *
-   * Computed per render from the mention index rather than stored, so it always
-   * reflects the current text and never becomes a stale fact the user has to
-   * clean up.
+   * Inferred connections are dashed and unlabelled so they never read as
+   * something the GM stated — §32 keeps suggestion visibly separate from canon.
    */
-  const coOccurrenceEdges = useMemo<Edge[]>(() => {
-    if (!showCoOccurrence) return [];
-
-    const visible = new Set(visibleEntities.map((e) => e.id));
-    const byNote = new Map<string, Set<string>>();
-
-    for (const mention of mentions) {
-      if (!visible.has(mention.entityId)) continue;
-      let set = byNote.get(mention.noteId);
-      if (!set) {
-        set = new Set();
-        byNote.set(mention.noteId, set);
-      }
-      set.add(mention.entityId);
-    }
-
-    const pairCounts = new Map<string, number>();
-    for (const ids of byNote.values()) {
-      const sorted = [...ids].sort();
-      for (let i = 0; i < sorted.length; i++) {
-        for (let j = i + 1; j < sorted.length; j++) {
-          const key = `${sorted[i]}|${sorted[j]}`;
-          pairCounts.set(key, (pairCounts.get(key) ?? 0) + 1);
-        }
-      }
-    }
-
-    const edges: Edge[] = [];
-    for (const [key, count] of pairCounts) {
-      if (count < CO_OCCURRENCE_THRESHOLD) continue;
-      const [source, target] = key.split("|");
-      edges.push({
-        id: `co-${key}`,
-        source,
-        target,
-        animated: false,
-        style: {
-          stroke: "var(--border-strong)",
-          strokeDasharray: "4 4",
-        },
-      });
-    }
-
-    return edges;
-  }, [mentions, visibleEntities, showCoOccurrence]);
-
   const edges = useMemo<Edge[]>(() => {
     const visible = new Set(visibleEntities.map((e) => e.id));
 
-    const explicit: Edge[] = relationships
-      .filter((r) => visible.has(r.sourceEntityId) && visible.has(r.targetEntityId))
-      .map((r) => ({
-        id: r.id,
-        source: r.sourceEntityId,
-        target: r.targetEntityId,
-        label: r.relationshipType,
-        labelStyle: { fill: "var(--ink-muted)", fontSize: 10 },
-        labelBgStyle: { fill: "var(--bg-surface)" },
-        style: { stroke: "var(--accent-candle)" },
+    return graph.edges
+      .filter(
+        (edge) =>
+          visible.has(edge.sourceEntityId) && visible.has(edge.targetEntityId),
+      )
+      .filter((edge) => showCoOccurrence || edge.kind === "stated")
+      .map((edge) => ({
+        id: `${edge.kind}-${edge.sourceEntityId}-${edge.targetEntityId}`,
+        source: edge.sourceEntityId,
+        target: edge.targetEntityId,
+        ...(edge.kind === "stated"
+          ? {
+              label: edge.label,
+              labelStyle: { fill: "var(--ink-muted)", fontSize: 10 },
+              labelBgStyle: { fill: "var(--bg-surface)" },
+              style: { stroke: "var(--accent-candle)" },
+            }
+          : {
+              style: {
+                stroke: "var(--border-strong)",
+                strokeDasharray: "4 4",
+              },
+            }),
       }));
-
-    // Explicit relationships win: if the GM has stated a connection, the
-    // inferred one underneath it is redundant clutter.
-    const stated = new Set(
-      explicit.flatMap((e) => [`${e.source}|${e.target}`, `${e.target}|${e.source}`]),
-    );
-
-    return [
-      ...explicit,
-      ...coOccurrenceEdges.filter(
-        (e) => !stated.has(`${e.source}|${e.target}`),
-      ),
-    ];
-  }, [relationships, visibleEntities, coOccurrenceEdges]);
+  }, [graph, visibleEntities, showCoOccurrence]);
 
   /** Changes whenever the rendered graph differs — including entity renames. */
   const graphKey = useMemo(

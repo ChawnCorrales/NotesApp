@@ -14,7 +14,7 @@ import {
   getEntityCountsByType,
   reorderEntityTypes,
   updateEntityType,
-} from "@/lib/db/repositories";
+} from "@/lib/services";
 import {
   createNpc,
   createTestCampaign,
@@ -149,7 +149,7 @@ describe("removing a section", () => {
     const { campaign, npcType } = fixture;
     const marrow = await createNpc(campaign.id, npcType.id, "Marrow");
 
-    const { deleteEntity } = await import("@/lib/db/repositories");
+    const { deleteEntity } = await import("@/lib/services");
     await deleteEntity(marrow.id);
 
     expect((await deleteEntityType(npcType.id)).deleted).toBe(true);

@@ -15,7 +15,7 @@ import {
   moveFolder,
   moveNoteToFolder,
   renameFolder,
-} from "@/lib/db/repositories";
+} from "@/lib/services";
 import { buildFolderTree } from "@/lib/folders/tree";
 import {
   createTestCampaign,

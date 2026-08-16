@@ -1,13 +1,17 @@
 /**
- * All writes go through here.
+ * The Dexie-backed implementation of the service layer.
  *
- * Components never call Dexie directly. Besides keeping the UI honest, this is
- * the seam where a sync engine eventually lives: every mutation below is the
- * natural place to also enqueue a pending sync operation (PRD §36).
+ * This is the only module that knows the app stores data in IndexedDB.
+ * Components never import it directly — they import `lib/services`, which is
+ * the surface a server API would eventually mirror. Keeping the boundary here
+ * is what makes a second implementation possible without touching the UI.
+ *
+ * It is also the seam where a sync engine lives: every mutation below is the
+ * natural place to enqueue a pending sync operation (PRD §36).
  */
 
-import { db, newId } from "./db";
-import { NOT_DELETED } from "./types";
+import { db, newId } from "../db/db";
+import { NOT_DELETED } from "../db/types";
 import type {
   Entity,
   EntityAlias,
@@ -19,7 +23,7 @@ import type {
   Note,
   Relationship,
   Task,
-} from "./types";
+} from "../db/types";
 import { wouldCreateCycle } from "../folders/tree";
 import {
   filterSuppressed,

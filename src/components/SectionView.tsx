@@ -9,7 +9,7 @@
 
 import { useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { getMentionCounts, updateEntityType } from "@/lib/db/repositories";
+import { getMentionCounts, updateEntityType } from "@/lib/services";
 import { useCampaign } from "./campaign-context";
 import { useNavigation } from "./navigation-context";
 import { CreateEntityDialog } from "./CreateEntityDialog";
