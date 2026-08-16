@@ -19,11 +19,13 @@ import {
   getCollection,
   getCollectionContents,
   getCollectionsForMember,
+  listCollectionSummaries,
   listCollections,
   moveNoteToFolder,
   removeFromCollection,
   trashNote,
   updateCollection,
+  type CollectionSummary,
 } from "@/lib/services";
 import {
   createNoteWithText,
@@ -270,5 +272,164 @@ describe("deleting", () => {
     await restoreNote(session.id);
 
     expect((await getCollectionContents(collection.id)).notes).toHaveLength(1);
+  });
+});
+
+/**
+ * The browse-all view and the sidebar both show a count per collection, and
+ * both get it from one call rather than one call per collection.
+ *
+ * The rule these protect: a count must agree with what opening the collection
+ * shows. A card saying "4 notes" above a list of three is a bug report, and the
+ * two numbers come from different code paths, so nothing but a test keeps them
+ * honest.
+ */
+describe("collection summaries", () => {
+  function summaryFor(summaries: CollectionSummary[], collectionId: string) {
+    return summaries.find((s) => s.collectionId === collectionId);
+  }
+
+  it("counts what the collection holds", async () => {
+    const { collection } = await redQueenInvestigation();
+
+    const summary = summaryFor(
+      await listCollectionSummaries(fixture.campaign.id),
+      collection.id,
+    );
+
+    expect(summary).toMatchObject({ name: "Red Queen Investigation", noteCount: 1, entityCount: 2 });
+  });
+
+  it("agrees with the contents the collection actually shows", async () => {
+    const { collection } = await redQueenInvestigation();
+
+    const [summaries, contents] = await Promise.all([
+      listCollectionSummaries(fixture.campaign.id),
+      getCollectionContents(collection.id),
+    ]);
+    const summary = summaryFor(summaries, collection.id)!;
+
+    expect(summary.noteCount).toBe(contents.notes.length);
+    expect(summary.entityCount).toBe(contents.entities.length);
+  });
+
+  it("stops counting a trashed note, as the contents do", async () => {
+    const { collection, session } = await redQueenInvestigation();
+
+    await trashNote(session.id);
+    const summary = summaryFor(
+      await listCollectionSummaries(fixture.campaign.id),
+      collection.id,
+    )!;
+
+    expect(summary.noteCount).toBe(0);
+    expect(summary.entityCount).toBe(2);
+  });
+
+  it("counts a restored note again", async () => {
+    const { collection, session } = await redQueenInvestigation();
+    const { restoreNote } = await import("@/lib/services");
+
+    await trashNote(session.id);
+    await restoreNote(session.id);
+
+    expect(
+      summaryFor(await listCollectionSummaries(fixture.campaign.id), collection.id)!
+        .noteCount,
+    ).toBe(1);
+  });
+
+  it("stops counting a deleted entity", async () => {
+    const { collection, marrow } = await redQueenInvestigation();
+
+    await deleteEntity(marrow.id);
+
+    expect(
+      summaryFor(await listCollectionSummaries(fixture.campaign.id), collection.id)!
+        .entityCount,
+    ).toBe(1);
+  });
+
+  /**
+   * Deleting an entity already removes its memberships, so that path alone
+   * never exercises the liveness check here. A membership pointing at nothing
+   * is what a partial sync or an interrupted delete leaves behind, and the
+   * count has to survive it the same way `getCollectionContents` does.
+   */
+  it("ignores a membership whose target no longer exists", async () => {
+    const { collection } = await redQueenInvestigation();
+
+    await db.collectionMembers.add({
+      id: "orphan-member",
+      collectionId: collection.id,
+      memberType: "entity",
+      memberId: "an-entity-that-was-never-created",
+      addedAt: Date.now(),
+    });
+
+    const summary = summaryFor(
+      await listCollectionSummaries(fixture.campaign.id),
+      collection.id,
+    )!;
+    const contents = await getCollectionContents(collection.id);
+
+    expect(summary.entityCount).toBe(2);
+    expect(summary.entityCount).toBe(contents.entities.length);
+  });
+
+  it("reports an empty collection as empty rather than omitting it", async () => {
+    const empty = await createCollection(fixture.campaign.id, "Untouched");
+
+    const summary = summaryFor(
+      await listCollectionSummaries(fixture.campaign.id),
+      empty.id,
+    );
+
+    // Omitting it would hide the collection from the sidebar entirely, which is
+    // how a user loses something they just made.
+    expect(summary).toMatchObject({ noteCount: 0, entityCount: 0 });
+  });
+
+  it("returns nothing for a campaign with no collections", async () => {
+    expect(await listCollectionSummaries(fixture.campaign.id)).toEqual([]);
+  });
+
+  it("keeps each collection's count separate", async () => {
+    const { campaign, npcType } = fixture;
+    const first = await createCollection(campaign.id, "One");
+    const second = await createCollection(campaign.id, "Two");
+    const marrow = await createNpc(campaign.id, npcType.id, "Marrow");
+    const note = await createNoteWithText(campaign.id, "S1", "Text.");
+
+    await addToCollection({ collectionId: first.id, memberType: "entity", memberId: marrow.id });
+    await addToCollection({ collectionId: second.id, memberType: "note", memberId: note.id });
+    await addToCollection({ collectionId: second.id, memberType: "entity", memberId: marrow.id });
+
+    const summaries = await listCollectionSummaries(campaign.id);
+
+    expect(summaryFor(summaries, first.id)).toMatchObject({ noteCount: 0, entityCount: 1 });
+    expect(summaryFor(summaries, second.id)).toMatchObject({ noteCount: 1, entityCount: 1 });
+  });
+
+  it("does not count another campaign's collections", async () => {
+    const { campaign } = fixture;
+    await redQueenInvestigation();
+
+    const other = await createTestCampaign();
+    const strayCollection = await createCollection(other.campaign.id, "Elsewhere");
+
+    const summaries = await listCollectionSummaries(campaign.id);
+
+    expect(summaries.map((s) => s.collectionId)).not.toContain(strayCollection.id);
+    expect(await listCollectionSummaries(other.campaign.id)).toHaveLength(1);
+  });
+
+  it("carries the colour, so the sidebar dot matches the collection", async () => {
+    const collection = await createCollection(fixture.campaign.id, "Arc", "faction");
+
+    expect(
+      summaryFor(await listCollectionSummaries(fixture.campaign.id), collection.id)!
+        .colorKey,
+    ).toBe("faction");
   });
 });

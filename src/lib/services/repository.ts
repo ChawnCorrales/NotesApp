@@ -37,6 +37,7 @@ import {
   ok,
   type CollectionContents,
   type CollectionMemberRequest,
+  type CollectionSummary,
   type CreateEntityRequest,
   type CreateEntityTypeRequest,
   type CreateNoteRequest,
@@ -176,9 +177,9 @@ export async function trashNote(noteId: ID): Promise<void> {
 /**
  * Restores a note from the trash and rebuilds what trashing removed.
  *
- * Takes a recogniser rather than reaching for one, so a restore re-indexes
- * against the campaign's *current* entity vocabulary — a name flagged while the
- * note sat in the trash is recognised the moment it comes back.
+ * Recognition is rebuilt from the campaign's *current* vocabulary, so a name
+ * flagged while the note sat in the trash is recognised the moment it comes
+ * back.
  */
 export async function restoreNote(noteId: ID): Promise<void> {
   const note = await db.notes.get(noteId);
@@ -919,6 +920,69 @@ export async function getCollectionContents(
       .filter((e): e is Entity => Boolean(e))
       .sort((a, b) => a.name.localeCompare(b.name)),
   };
+}
+
+/**
+ * Every collection in a campaign with a count of what it holds.
+ *
+ * Counts agree with `getCollectionContents`, which means trashed notes and
+ * members whose target has been deleted are both excluded — a collection
+ * claiming four notes and then showing three reads as a bug.
+ *
+ * One pass over the campaign's memberships rather than one query per
+ * collection, and it never loads a note body to display a number.
+ */
+export async function listCollectionSummaries(
+  campaignId: ID,
+): Promise<CollectionSummary[]> {
+  const collections = await listCollections(campaignId);
+  if (collections.length === 0) return [];
+
+  const ids = new Set(collections.map((c) => c.id));
+  const members = await db.collectionMembers
+    .where("collectionId")
+    .anyOf([...ids])
+    .toArray();
+
+  const noteIds = [
+    ...new Set(members.filter((m) => m.memberType === "note").map((m) => m.memberId)),
+  ];
+  const entityIds = [
+    ...new Set(members.filter((m) => m.memberType === "entity").map((m) => m.memberId)),
+  ];
+
+  const [notes, entities] = await Promise.all([
+    db.notes.bulkGet(noteIds),
+    db.entities.bulkGet(entityIds),
+  ]);
+
+  const liveNotes = new Set(
+    notes.filter((n) => n && n.deletedAt === NOT_DELETED).map((n) => n!.id),
+  );
+  const liveEntities = new Set(entities.filter(Boolean).map((e) => e!.id));
+
+  const counts = new Map<ID, { notes: number; entities: number }>();
+  for (const collection of collections) {
+    counts.set(collection.id, { notes: 0, entities: 0 });
+  }
+  for (const member of members) {
+    const bucket = counts.get(member.collectionId);
+    if (!bucket) continue;
+    if (member.memberType === "note") {
+      if (liveNotes.has(member.memberId)) bucket.notes++;
+    } else if (liveEntities.has(member.memberId)) {
+      bucket.entities++;
+    }
+  }
+
+  return collections.map((c) => ({
+    collectionId: c.id,
+    name: c.name,
+    description: c.description,
+    colorKey: c.colorKey,
+    noteCount: counts.get(c.id)!.notes,
+    entityCount: counts.get(c.id)!.entities,
+  }));
 }
 
 /** The collections a note or entity belongs to. */

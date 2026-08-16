@@ -46,6 +46,7 @@ import {
 } from "@/lib/editor/entity-highlight";
 import { useCampaign } from "./campaign-context";
 import { useNavigation } from "./navigation-context";
+import { AddToCollection } from "./AddToCollection";
 import { CreateEntityDialog } from "./CreateEntityDialog";
 
 /** How long to wait after the last keystroke before persisting. */
@@ -318,8 +319,9 @@ export function NoteEditor({ noteId }: { noteId: string }) {
           aria-label="Note title"
           className="w-full bg-transparent text-2xl font-semibold text-ink placeholder:text-ink-faint focus:outline-none"
         />
-        <div className="mt-2 flex items-center gap-3 text-xs text-ink-faint">
+        <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-ink-faint">
           <span>{saving ? "Saving…" : "Saved locally"}</span>
+          <AddToCollection memberType="note" memberId={noteId} />
           {selectedText && (
             <button
               type="button"

@@ -111,6 +111,7 @@ export {
   removeFromCollection,
   getCollectionContents,
   getCollectionsForMember,
+  listCollectionSummaries,
 } from "./repository";
 export { syncTasksForNote } from "./repository";
 export { listTasks, listEntityTypesUnordered } from "./reads";
@@ -187,6 +188,9 @@ export {
   type EntityTypeCount,
   type NoteSummary,
   type CollectionContents,
+  type CollectionSummary,
+  type Collection,
+  type CollectionMemberType,
 } from "./contracts";
 
 /* --------------------------------------------------------------- campaign */
