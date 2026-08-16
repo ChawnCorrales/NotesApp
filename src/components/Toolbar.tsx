@@ -10,7 +10,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { createEntityType, createFolder, createNote } from "@/lib/db/repositories";
+import { createEntityType, createFolder, createNote } from "@/lib/services";
 import { useActiveEditor } from "@/lib/editor/active-editor";
 import { useCampaign } from "./campaign-context";
 import { useNavigation } from "./navigation-context";
@@ -65,7 +65,7 @@ export function Toolbar({
 
   const newNote = useCallback(async () => {
     if (!campaign) return;
-    const note = await createNote(campaign.id);
+    const note = await createNote({ campaignId: campaign.id });
     navigate({ kind: "note", noteId: note.id });
   }, [campaign, navigate]);
 
@@ -102,7 +102,12 @@ export function Toolbar({
             onClick={() =>
               run(() => {
                 if (!campaign) return;
-                void createEntityType(campaign.id, "New section", "◇", "concept").then(
+                void createEntityType({
+                  campaignId: campaign.id,
+                  name: "New section",
+                  icon: "◇",
+                  themeKey: "concept",
+                }).then(
                   () => navigate({ kind: "canon" }),
                 );
               })

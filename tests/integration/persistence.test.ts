@@ -15,7 +15,7 @@ import {
   getBacklinks,
   reindexCampaign,
   suppressMention,
-} from "@/lib/db/repositories";
+} from "@/lib/services";
 import {
   buildRecognizer,
   createNoteWithText,
@@ -78,7 +78,7 @@ describe("surviving a reload", () => {
     const { campaign, npcType, locationType } = fixture;
     const marrow = await createNpc(campaign.id, npcType.id, "Marrow");
     const greyhaven = await createNpc(campaign.id, locationType.id, "Greyhaven");
-    await createRelationship(campaign.id, marrow.id, greyhaven.id, "works in");
+    await createRelationship({ campaignId: campaign.id, sourceEntityId: marrow.id, targetEntityId: greyhaven.id, relationshipType: "works in" });
 
     await reopenDatabase();
 
@@ -95,7 +95,7 @@ describe("surviving a reload", () => {
     const ash = await createNpc(campaign.id, npcType.id, "Ash");
     const note = await createNoteWithText(campaign.id, "S1", "Ash spoke. Ash left.");
 
-    await suppressMention(campaign.id, note.id, ash.id, 0);
+    await suppressMention({ campaignId: campaign.id, noteId: note.id, entityId: ash.id, occurrenceIndex: 0 });
     await reopenDatabase();
 
     const suppressions = await db.mentionSuppressions
@@ -128,7 +128,7 @@ describe("rebuilding derived data", () => {
     // The mention table is derived; throwing it away must be recoverable.
     await db.entityMentions.clear();
     await reopenDatabase();
-    await reindexCampaign(campaign.id, await buildRecognizer(campaign.id));
+    await reindexCampaign(campaign.id);
 
     expect(await getBacklinks(marrow.id)).toHaveLength(1);
     expect(await getBacklinks(greyhaven.id)).toHaveLength(2);
@@ -139,10 +139,10 @@ describe("rebuilding derived data", () => {
     const ash = await createNpc(campaign.id, npcType.id, "Ash");
     const note = await createNoteWithText(campaign.id, "S1", "Ash spoke. Ash left.");
 
-    await suppressMention(campaign.id, note.id, ash.id, 0);
+    await suppressMention({ campaignId: campaign.id, noteId: note.id, entityId: ash.id, occurrenceIndex: 0 });
     await db.entityMentions.clear();
     await reopenDatabase();
-    await reindexCampaign(campaign.id, await buildRecognizer(campaign.id));
+    await reindexCampaign(campaign.id);
 
     // The rebuild must not resurrect a mention the user already rejected.
     const mentions = await db.entityMentions.where("noteId").equals(note.id).toArray();
@@ -155,9 +155,8 @@ describe("rebuilding derived data", () => {
     await createNpc(campaign.id, npcType.id, "Marrow");
     await createNoteWithText(campaign.id, "A", "Marrow waits. Marrow lied.");
 
-    const recognizer = await buildRecognizer(campaign.id);
-    const first = await reindexCampaign(campaign.id, recognizer);
-    const second = await reindexCampaign(campaign.id, recognizer);
+    const first = await reindexCampaign(campaign.id);
+    const second = await reindexCampaign(campaign.id);
 
     expect(first).toBe(second);
     expect(await db.entityMentions.count()).toBe(first);

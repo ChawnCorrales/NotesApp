@@ -11,7 +11,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { createNote, listLiveNotes } from "@/lib/db/repositories";
+import { createNote, listLiveNotes } from "@/lib/services";
 import type { Note } from "@/lib/db/types";
 import { useCampaign } from "./campaign-context";
 import { useNavigation } from "./navigation-context";
@@ -71,7 +71,7 @@ export function CommandPalette() {
         hint: "action",
         run: async () => {
           if (!campaign) return;
-          const note = await createNote(campaign.id);
+          const note = await createNote({ campaignId: campaign.id });
           navigate({ kind: "note", noteId: note.id });
         },
       },

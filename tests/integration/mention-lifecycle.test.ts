@@ -8,7 +8,7 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 import { db } from "@/lib/db/db";
-import { createNote } from "@/lib/db/repositories";
+import { createNote } from "@/lib/services";
 import {
   createNpc,
   createTestCampaign,
@@ -32,7 +32,7 @@ describe("mention lifecycle", () => {
   it("creates a mention when the entity name is typed", async () => {
     const { campaign, npcType } = fixture;
     const marrow = await createNpc(campaign.id, npcType.id, "Marrow");
-    const note = await createNote(campaign.id, { title: "Session 1" });
+    const note = await createNote({ campaignId: campaign.id, title: "Session 1" });
 
     await writeNote(campaign.id, note.id, "Marrow greets the party.");
 
@@ -45,7 +45,7 @@ describe("mention lifecycle", () => {
   it("removes the mention when the text is deleted", async () => {
     const { campaign, npcType } = fixture;
     await createNpc(campaign.id, npcType.id, "Marrow");
-    const note = await createNote(campaign.id);
+    const note = await createNote({ campaignId: campaign.id });
 
     await writeNote(campaign.id, note.id, "Marrow greets the party.");
     await writeNote(campaign.id, note.id, "The party arrives alone.");
@@ -56,7 +56,7 @@ describe("mention lifecycle", () => {
   it("removes the mention when the text is edited so it no longer matches", async () => {
     const { campaign, npcType } = fixture;
     await createNpc(campaign.id, npcType.id, "Marrow");
-    const note = await createNote(campaign.id);
+    const note = await createNote({ campaignId: campaign.id });
 
     await writeNote(campaign.id, note.id, "Marrow greets the party.");
     await writeNote(campaign.id, note.id, "Marrowbone greets the party.");
@@ -67,7 +67,7 @@ describe("mention lifecycle", () => {
   it("recreates the mention when the text is typed again", async () => {
     const { campaign, npcType } = fixture;
     await createNpc(campaign.id, npcType.id, "Marrow");
-    const note = await createNote(campaign.id);
+    const note = await createNote({ campaignId: campaign.id });
 
     await writeNote(campaign.id, note.id, "Marrow greets the party.");
     await writeNote(campaign.id, note.id, "The party arrives alone.");
@@ -81,7 +81,7 @@ describe("mention lifecycle", () => {
   it("tracks several mentions of the same entity in one note", async () => {
     const { campaign, npcType } = fixture;
     const marrow = await createNpc(campaign.id, npcType.id, "Marrow");
-    const note = await createNote(campaign.id);
+    const note = await createNote({ campaignId: campaign.id });
 
     await writeNote(
       campaign.id,
@@ -98,7 +98,7 @@ describe("mention lifecycle", () => {
   it("adjusts the remaining mentions when one of several is removed", async () => {
     const { campaign, npcType } = fixture;
     await createNpc(campaign.id, npcType.id, "Marrow");
-    const note = await createNote(campaign.id);
+    const note = await createNote({ campaignId: campaign.id });
 
     await writeNote(campaign.id, note.id, "Marrow lied. Marrow left.");
     await writeNote(campaign.id, note.id, "Marrow lied.");
@@ -111,8 +111,8 @@ describe("mention lifecycle", () => {
   it("does not leak mentions between notes", async () => {
     const { campaign, npcType } = fixture;
     await createNpc(campaign.id, npcType.id, "Marrow");
-    const first = await createNote(campaign.id);
-    const second = await createNote(campaign.id);
+    const first = await createNote({ campaignId: campaign.id });
+    const second = await createNote({ campaignId: campaign.id });
 
     await writeNote(campaign.id, first.id, "Marrow greets the party.");
     await writeNote(campaign.id, second.id, "Nobody is here.");
@@ -124,7 +124,7 @@ describe("mention lifecycle", () => {
   it("replaces rather than accumulates mentions on repeated saves", async () => {
     const { campaign, npcType } = fixture;
     await createNpc(campaign.id, npcType.id, "Marrow");
-    const note = await createNote(campaign.id);
+    const note = await createNote({ campaignId: campaign.id });
 
     // Saving is debounced but frequent; duplicated rows would inflate every
     // mention count in the app.
@@ -138,10 +138,10 @@ describe("mention lifecycle", () => {
   it("drops a note's mentions when the note is deleted", async () => {
     const { campaign, npcType } = fixture;
     await createNpc(campaign.id, npcType.id, "Marrow");
-    const note = await createNote(campaign.id);
+    const note = await createNote({ campaignId: campaign.id });
     await writeNote(campaign.id, note.id, "Marrow greets the party.");
 
-    const { deleteNote } = await import("@/lib/db/repositories");
+    const { deleteNote } = await import("@/lib/services");
     await deleteNote(note.id);
 
     expect(await mentionsFor(note.id)).toHaveLength(0);

@@ -17,7 +17,7 @@ import {
   deleteEntityType,
   reorderEntityTypes,
   updateEntityType,
-} from "@/lib/db/repositories";
+} from "@/lib/services";
 import type { EntityType } from "@/lib/db/types";
 import { useCampaign } from "./campaign-context";
 import { useNavigation } from "./navigation-context";
@@ -107,13 +107,18 @@ export function CampaignCanon({ onQuickNote }: { onQuickNote: () => void }) {
 
   const addSection = useCallback(async () => {
     if (!campaign) return;
-    const created = await createEntityType(campaign.id, "New section", "◇", "concept");
+    const created = await createEntityType({
+      campaignId: campaign.id,
+      name: "New section",
+      icon: "◇",
+      themeKey: "concept",
+    });
     setEditing(created.id);
   }, [campaign]);
 
   const remove = useCallback(async (type: EntityType) => {
     const result = await deleteEntityType(type.id);
-    if (!result.deleted) setNotice(result.reason ?? "Could not remove that section.");
+    if (!result.ok) setNotice(result.error.message);
   }, []);
 
   return (

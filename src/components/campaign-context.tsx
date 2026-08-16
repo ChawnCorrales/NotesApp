@@ -19,8 +19,13 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { db, ensureCampaign } from "@/lib/db/db";
-import { listAliases, listEntityTypes, reindexCampaign } from "@/lib/db/repositories";
+import {
+  ensureCampaign,
+  listAliases,
+  listEntities,
+  listEntityTypes,
+  reindexCampaign,
+} from "@/lib/services";
 import type { Campaign, Entity, EntityAlias, EntityType } from "@/lib/db/types";
 import { EntityRecognizer } from "@/lib/entities/recognizer";
 import type { EntityDisplayInfo } from "@/lib/editor/entity-highlight";
@@ -66,10 +71,7 @@ export function CampaignProvider({ children }: { children: ReactNode }) {
   const campaignId = campaign?.id;
 
   const entities = useLiveQuery(
-    () =>
-      campaignId
-        ? db.entities.where("campaignId").equals(campaignId).toArray()
-        : Promise.resolve<Entity[]>([]),
+    () => (campaignId ? listEntities(campaignId) : Promise.resolve<Entity[]>([])),
     [campaignId],
     [] as Entity[],
   );
@@ -132,7 +134,7 @@ export function CampaignProvider({ children }: { children: ReactNode }) {
     if (!campaignId) return;
 
     const timer = setTimeout(() => {
-      void reindexCampaign(campaignId, recognizer);
+      void reindexCampaign(campaignId);
     }, REINDEX_DEBOUNCE_MS);
 
     return () => clearTimeout(timer);

@@ -14,13 +14,16 @@ import {
   getEntityCountsByType,
   reorderEntityTypes,
   updateEntityType,
-} from "@/lib/db/repositories";
+} from "@/lib/services";
 import {
   createNpc,
   createTestCampaign,
   reopenDatabase,
   resetDatabase,
   type TestCampaign,
+  errorMessage,
+  errorDetail,
+  entityCountFor,
 } from "../helpers/campaign";
 
 let fixture: TestCampaign;
@@ -92,7 +95,7 @@ describe("reordering sections", () => {
   it("keeps a new section at the end until moved", async () => {
     const { campaign } = fixture;
 
-    const created = await createEntityType(campaign.id, "Ships", "⚓", "item");
+    const created = await createEntityType({ campaignId: campaign.id, name: "Ships", icon: "⚓", themeKey: "item" });
 
     expect(created.sortOrder).toBe(2);
     expect(created.hidden).toBe(false);
@@ -112,11 +115,11 @@ describe("reordering sections", () => {
 describe("removing a section", () => {
   it("deletes one that is empty", async () => {
     const { campaign } = fixture;
-    const spare = await createEntityType(campaign.id, "Ships", "⚓", "item");
+    const spare = await createEntityType({ campaignId: campaign.id, name: "Ships", icon: "⚓", themeKey: "item" });
 
     const result = await deleteEntityType(spare.id);
 
-    expect(result.deleted).toBe(true);
+    expect(result.ok).toBe(true);
     expect(await db.entityTypes.get(spare.id)).toBeUndefined();
   });
 
@@ -128,9 +131,9 @@ describe("removing a section", () => {
 
     // Cascading would delete the GM's characters; silently reassigning would
     // move them somewhere they never chose. Refusing says so out loud.
-    expect(result.deleted).toBe(false);
-    expect(result.entityCount).toBe(1);
-    expect(result.reason).toMatch(/still in this section/);
+    expect(result.ok).toBe(false);
+    expect(errorDetail(result, "entityCount")).toBe(1);
+    expect(errorMessage(result)).toMatch(/still in this section/);
     expect(await db.entityTypes.get(npcType.id)).toBeTruthy();
   });
 
@@ -141,18 +144,18 @@ describe("removing a section", () => {
 
     const result = await deleteEntityType(npcType.id);
 
-    expect(result.entityCount).toBe(2);
-    expect(result.reason).toMatch(/entities are/);
+    expect(errorDetail(result, "entityCount")).toBe(2);
+    expect(errorMessage(result)).toMatch(/entities are/);
   });
 
   it("succeeds once the entities are gone", async () => {
     const { campaign, npcType } = fixture;
     const marrow = await createNpc(campaign.id, npcType.id, "Marrow");
 
-    const { deleteEntity } = await import("@/lib/db/repositories");
+    const { deleteEntity } = await import("@/lib/services");
     await deleteEntity(marrow.id);
 
-    expect((await deleteEntityType(npcType.id)).deleted).toBe(true);
+    expect((await deleteEntityType(npcType.id)).ok).toBe(true);
   });
 });
 
@@ -165,13 +168,13 @@ describe("section counts", () => {
 
     const counts = await getEntityCountsByType(campaign.id);
 
-    expect(counts.get(npcType.id)).toBe(2);
-    expect(counts.get(locationType.id)).toBe(1);
+    expect(entityCountFor(counts, npcType.id)).toBe(2);
+    expect(entityCountFor(counts, locationType.id)).toBe(1);
   });
 
   it("omits sections with nothing in them", async () => {
     const counts = await getEntityCountsByType(fixture.campaign.id);
 
-    expect(counts.get(fixture.npcType.id)).toBeUndefined();
+    expect(entityCountFor(counts, fixture.npcType.id)).toBeUndefined();
   });
 });

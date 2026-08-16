@@ -9,7 +9,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { createEntityType, createFolder, createNote } from "@/lib/db/repositories";
+import { createEntityType, createFolder, createNote } from "@/lib/services";
 import { useCampaign } from "./campaign-context";
 import { useNavigation } from "./navigation-context";
 import { CreateEntityDialog } from "./CreateEntityDialog";
@@ -43,7 +43,7 @@ export function GlobalCreate() {
   const newNote = useCallback(async () => {
     if (!campaign) return;
     setOpen(false);
-    const note = await createNote(campaign.id);
+    const note = await createNote({ campaignId: campaign.id });
     navigate({ kind: "note", noteId: note.id });
   }, [campaign, navigate]);
 
@@ -56,7 +56,12 @@ export function GlobalCreate() {
   const newSection = useCallback(async () => {
     if (!campaign) return;
     setOpen(false);
-    await createEntityType(campaign.id, "New section", "◇", "concept");
+    await createEntityType({
+      campaignId: campaign.id,
+      name: "New section",
+      icon: "◇",
+      themeKey: "concept",
+    });
     navigate({ kind: "canon" });
   }, [campaign, navigate]);
 

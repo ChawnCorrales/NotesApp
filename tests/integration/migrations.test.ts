@@ -17,7 +17,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { db } from "@/lib/db/db";
 import {
   getBacklinks,
-  getGroupsForEntity,
+  getCollectionContents,
+  getCollectionsForMember,
   getMentionCounts,
   getSuppressionKeysForNote,
   listAliases,
@@ -25,7 +26,7 @@ import {
   listLiveNotes,
   listRecentNotes,
   listTrashedNotes,
-} from "@/lib/db/repositories";
+} from "@/lib/services";
 import { NOT_DELETED } from "@/lib/db/types";
 import { buildFolderTree } from "@/lib/folders/tree";
 import {
@@ -34,6 +35,7 @@ import {
   seedLegacyCampaign,
   type LegacyFixture,
 } from "../helpers/legacy-db";
+import { noteCountFor } from "../helpers/campaign";
 
 /**
  * Stands up a database at `fromVersion`, then opens it with the current schema.
@@ -137,8 +139,8 @@ describe.each(LEGACY_VERSIONS)("upgrading from version %i", (from) => {
     const counts = await getMentionCounts(fixture.campaignId);
 
     expect(backlinks.map((n) => n.id)).toEqual([fixture.noteIds[0]]);
-    expect(counts.get(fixture.entityIds[0])).toBe(1);
-    expect(counts.get(fixture.entityIds[1])).toBe(1);
+    expect(noteCountFor(counts, fixture.entityIds[0])).toBe(1);
+    expect(noteCountFor(counts, fixture.entityIds[1])).toBe(1);
   });
 
   it("keeps relationships, queryable from both ends", async () => {
@@ -195,11 +197,42 @@ describe.each([2, 3, 4, 5])("upgrading from version %i keeps v2 data", (from) =>
     fixture = await migrateFrom(from);
   });
 
-  it("keeps entity groups and their membership", async () => {
-    const groups = await getGroupsForEntity(fixture.entityIds[0]);
+  it("carries entity groups across into collections", async () => {
+    const collections = await getCollectionsForMember("entity", fixture.entityIds[0]);
 
-    expect(groups.map((g) => g.name)).toEqual(["The Traitors"]);
-    expect(groups[0].colorKey).toBe("faction");
+    // Groups became collections, which can now also hold notes. The membership
+    // a user created before that change has to come with them.
+    expect(collections.map((c) => c.name)).toEqual(["The Traitors"]);
+    expect(collections[0].colorKey).toBe("faction");
+    expect(collections[0].id).toBe(fixture.groupId);
+  });
+
+  it("lists the migrated entity as a member of the collection", async () => {
+    const contents = await getCollectionContents(fixture.groupId as string);
+
+    expect(contents.entities.map((e) => e.id)).toEqual([fixture.entityIds[0]]);
+    expect(contents.notes).toHaveLength(0);
+  });
+
+  it("removes the old group tables once the data has moved", async () => {
+    const tables = db.tables.map((t) => t.name);
+
+    expect(tables).not.toContain("entityGroups");
+    expect(tables).not.toContain("entityGroupMembers");
+    expect(tables).toContain("collections");
+  });
+
+  it("lets a migrated collection take notes, which it never could before", async () => {
+    const { addToCollection } = await import("@/lib/services");
+    await addToCollection({
+      collectionId: fixture.groupId as string,
+      memberType: "note",
+      memberId: fixture.noteIds[0],
+    });
+
+    const contents = await getCollectionContents(fixture.groupId as string);
+    expect(contents.notes.map((n) => n.id)).toEqual([fixture.noteIds[0]]);
+    expect(contents.entities).toHaveLength(1);
   });
 
   it("keeps false-positive corrections", async () => {

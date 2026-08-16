@@ -11,7 +11,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createEntity, addAlias } from "@/lib/db/repositories";
+import { createEntity, addAlias } from "@/lib/services";
 import { useCampaign } from "./campaign-context";
 import { useNavigation } from "./navigation-context";
 
@@ -62,7 +62,7 @@ export function CreateEntityDialog({
 
     setBusy(true);
     try {
-      const entity = await createEntity(campaignId, trimmed, typeId);
+      const entity = await createEntity({ campaignId, name: trimmed, entityTypeId: typeId });
       // The selected text becomes an alias when it differs from the final name,
       // so the phrase that prompted this still resolves in the note it came
       // from — e.g. selecting "Old Marrow" but naming the entity "Marrow".

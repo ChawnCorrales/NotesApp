@@ -11,7 +11,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { createNote, listRecentNotes } from "@/lib/db/repositories";
+import { createNote, listRecentNotes } from "@/lib/services";
 import type { Note } from "@/lib/db/types";
 import { useCampaign } from "./campaign-context";
 import { useNavigation } from "./navigation-context";
@@ -54,7 +54,7 @@ export function Sidebar() {
 
   const handleQuickNote = useCallback(async () => {
     if (!campaignId) return;
-    const note = await createNote(campaignId);
+    const note = await createNote({ campaignId: campaignId });
     navigate({ kind: "note", noteId: note.id });
   }, [campaignId, navigate]);
 

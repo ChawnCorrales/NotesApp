@@ -12,10 +12,10 @@ import Dexie, { type Table } from "dexie";
 import { NOT_DELETED } from "./types";
 import type {
   Campaign,
+  Collection,
+  CollectionMember,
   Entity,
   EntityAlias,
-  EntityGroup,
-  EntityGroupMember,
   EntityMention,
   EntityType,
   Favorite,
@@ -44,8 +44,8 @@ export class NotesAppDatabase extends Dexie {
   favorites!: Table<Favorite, string>;
   visits!: Table<VisitRecord, string>;
   mentionSuppressions!: Table<MentionSuppression, string>;
-  entityGroups!: Table<EntityGroup, string>;
-  entityGroupMembers!: Table<EntityGroupMember, string>;
+  collections!: Table<Collection, string>;
+  collectionMembers!: Table<CollectionMember, string>;
 
   /**
    * `name` is a parameter so migration tests can stand up a database under the
@@ -178,6 +178,55 @@ export class NotesAppDatabase extends Dexie {
             }
           });
       });
+
+    /**
+     * Entity groups become collections, which can also hold notes.
+     *
+     * The copy and the removal of the old tables are deliberately two versions.
+     * Dexie applies a version's store changes *before* running its upgrade
+     * function, so a store dropped in version 7 could not be read by version
+     * 7's own upgrade — the groups would be gone before anything copied them.
+     */
+    this.version(7)
+      .stores({
+        collections: "id, campaignId, [campaignId+name]",
+        collectionMembers:
+          "id, collectionId, memberId, [collectionId+memberType+memberId], [memberType+memberId]",
+      })
+      .upgrade(async (tx) => {
+        const groups = await tx.table("entityGroups").toArray();
+        const members = await tx.table("entityGroupMembers").toArray();
+
+        await tx.table<Collection>("collections").bulkAdd(
+          groups.map((group) => ({
+            id: group.id,
+            campaignId: group.campaignId,
+            name: group.name,
+            description: "",
+            colorKey: group.colorKey ?? "concept",
+            createdAt: group.createdAt ?? 0,
+            updatedAt: group.createdAt ?? 0,
+          })),
+        );
+
+        // Ids are preserved so a membership that already existed keeps its
+        // identity; only the shape changes.
+        await tx.table<CollectionMember>("collectionMembers").bulkAdd(
+          members.map((member) => ({
+            id: member.id,
+            collectionId: member.groupId,
+            memberType: "entity" as const,
+            memberId: member.entityId,
+            addedAt: 0,
+          })),
+        );
+      });
+
+    /** Only now, once the data is safely copied, are the old tables removed. */
+    this.version(8).stores({
+      entityGroups: null,
+      entityGroupMembers: null,
+    });
   }
 }
 

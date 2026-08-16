@@ -15,13 +15,14 @@ import {
   moveFolder,
   moveNoteToFolder,
   renameFolder,
-} from "@/lib/db/repositories";
+} from "@/lib/services";
 import { buildFolderTree } from "@/lib/folders/tree";
 import {
   createTestCampaign,
   reopenDatabase,
   resetDatabase,
   type TestCampaign,
+  errorMessage,
 } from "../helpers/campaign";
 
 let fixture: TestCampaign;
@@ -96,7 +97,7 @@ describe("moving folders", () => {
 
     const result = await moveFolder(cults.id, sessions.id);
 
-    expect(result.moved).toBe(true);
+    expect(result.ok).toBe(true);
     expect((await db.folders.get(cults.id))?.parentFolderId).toBe(sessions.id);
   });
 
@@ -113,8 +114,8 @@ describe("moving folders", () => {
 
     const result = await moveFolder(lore.id, lore.id);
 
-    expect(result.moved).toBe(false);
-    expect(result.reason).toMatch(/cannot be moved inside itself/);
+    expect(result.ok).toBe(false);
+    expect(errorMessage(result)).toMatch(/cannot be moved inside itself/);
     expect((await db.folders.get(lore.id))?.parentFolderId).toBeNull();
   });
 
@@ -124,7 +125,7 @@ describe("moving folders", () => {
     const result = await moveFolder(lore.id, cults.id);
 
     // Allowing this would detach Lore, Factions and Cults from the tree at once.
-    expect(result.moved).toBe(false);
+    expect(result.ok).toBe(false);
     expect((await db.folders.get(lore.id))?.parentFolderId).toBeNull();
     expect(buildFolderTree(await allFolders()).map((n) => n.folder.name).sort()).toEqual([
       "Lore",
@@ -137,15 +138,15 @@ describe("moving folders", () => {
 
     const result = await moveFolder(factions.id, lore.id);
 
-    expect(result.moved).toBe(true);
+    expect(result.ok).toBe(true);
     expect((await db.folders.get(factions.id))?.parentFolderId).toBe(lore.id);
   });
 
   it("reports a folder that no longer exists", async () => {
     const result = await moveFolder("missing", null);
 
-    expect(result.moved).toBe(false);
-    expect(result.reason).toMatch(/no longer exists/);
+    expect(result.ok).toBe(false);
+    expect(errorMessage(result)).toMatch(/no longer exists/);
   });
 
   it("carries the subtree along", async () => {
@@ -162,7 +163,7 @@ describe("moving folders", () => {
 describe("filing notes", () => {
   it("moves a note into a folder", async () => {
     const { lore } = await nest();
-    const note = await createNote(fixture.campaign.id, { title: "Session 1" });
+    const note = await createNote({ campaignId: fixture.campaign.id, title: "Session 1" });
 
     await moveNoteToFolder(note.id, lore.id);
 
@@ -171,7 +172,7 @@ describe("filing notes", () => {
 
   it("moves a note back to the top level", async () => {
     const { lore } = await nest();
-    const note = await createNote(fixture.campaign.id, { folderId: lore.id });
+    const note = await createNote({ campaignId: fixture.campaign.id, folderId: lore.id });
 
     await moveNoteToFolder(note.id, null);
 
@@ -180,7 +181,7 @@ describe("filing notes", () => {
 
   it("leaves the note's content untouched", async () => {
     const { lore } = await nest();
-    const note = await createNote(fixture.campaign.id, {
+    const note = await createNote({ campaignId: fixture.campaign.id,
       title: "Session 1",
       contentText: "The party arrived.",
     });
@@ -206,7 +207,7 @@ describe("deleting a folder", () => {
 
   it("lifts notes to the parent instead of deleting them", async () => {
     const { factions, lore } = await nest();
-    const note = await createNote(fixture.campaign.id, {
+    const note = await createNote({ campaignId: fixture.campaign.id,
       title: "Cult notes",
       folderId: factions.id,
     });
@@ -220,7 +221,7 @@ describe("deleting a folder", () => {
 
   it("moves contents to the top level when deleting a root folder", async () => {
     const { lore, factions } = await nest();
-    const note = await createNote(fixture.campaign.id, { folderId: lore.id });
+    const note = await createNote({ campaignId: fixture.campaign.id, folderId: lore.id });
 
     await deleteFolder(lore.id);
 

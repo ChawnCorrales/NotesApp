@@ -7,7 +7,7 @@
  */
 
 import { beforeEach, describe, expect, it } from "vitest";
-import { getBacklinks, getMentionCounts } from "@/lib/db/repositories";
+import { getBacklinks, getMentionCounts } from "@/lib/services";
 import {
   createNoteWithText,
   createNpc,
@@ -15,6 +15,7 @@ import {
   resetDatabase,
   writeNote,
   type TestCampaign,
+  noteCountFor,
 } from "../helpers/campaign";
 
 let fixture: TestCampaign;
@@ -75,7 +76,7 @@ describe("backlinks", () => {
 
     const counts = await getMentionCounts(campaign.id);
 
-    expect(counts.get(marrow.id)).toBe(2);
+    expect(noteCountFor(counts, marrow.id)).toBe(2);
   });
 
   it("removes the backlink when the last mention in a note is deleted", async () => {

@@ -26,13 +26,14 @@ import {
 } from "@tiptap/react";
 import { Placeholder } from "@tiptap/extensions";
 import { useLiveQuery } from "dexie-react-hooks";
-import { db } from "@/lib/db/db";
 import {
+  getNote,
+  listSuppressionsForNote,
   suppressMention,
   syncMentionsForNote,
   syncTasksForNote,
   updateNote,
-} from "@/lib/db/repositories";
+} from "@/lib/services";
 import type { MentionSuppression } from "@/lib/db/types";
 import { suppressionKey } from "@/lib/entities/recognizer";
 import { flattenDoc } from "@/lib/editor/doc-text";
@@ -62,10 +63,10 @@ export function NoteEditor({ noteId }: { noteId: string }) {
   const { campaign, recognizer, lookup } = useCampaign();
   const { navigate } = useNavigation();
 
-  const note = useLiveQuery(() => db.notes.get(noteId), [noteId]);
+  const note = useLiveQuery(() => getNote(noteId), [noteId]);
 
   const suppressions = useLiveQuery(
-    () => db.mentionSuppressions.where("noteId").equals(noteId).toArray(),
+    () => listSuppressionsForNote(noteId),
     [noteId],
     [] as MentionSuppression[],
   );
@@ -288,7 +289,12 @@ export function NoteEditor({ noteId }: { noteId: string }) {
    */
   const handleSuppress = useCallback(async () => {
     if (!popover || !campaign) return;
-    await suppressMention(campaign.id, noteId, popover.entityId, popover.occurrence);
+    await suppressMention({
+      campaignId: campaign.id,
+      noteId,
+      entityId: popover.entityId,
+      occurrenceIndex: popover.occurrence,
+    });
     setPopover(null);
     const instance = editorRef.current;
     if (instance) await persist(instance);

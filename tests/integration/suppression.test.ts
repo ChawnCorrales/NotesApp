@@ -14,7 +14,7 @@ import {
   reindexCampaign,
   suppressMention,
   unsuppressMention,
-} from "@/lib/db/repositories";
+} from "@/lib/services";
 import { filterSuppressed, suppressionKey } from "@/lib/entities/recognizer";
 import {
   buildRecognizer,
@@ -43,7 +43,7 @@ describe("suppressing one occurrence", () => {
       "Ash spoke. Ash left. Ash returned.",
     );
 
-    await suppressMention(campaign.id, note.id, ash.id, 1);
+    await suppressMention({ campaignId: campaign.id, noteId: note.id, entityId: ash.id, occurrenceIndex: 1 });
 
     const mentions = await db.entityMentions.where("noteId").equals(note.id).toArray();
     expect(mentions.map((m) => m.occurrence).sort()).toEqual([0, 2]);
@@ -54,7 +54,7 @@ describe("suppressing one occurrence", () => {
     const ash = await createNpc(campaign.id, npcType.id, "Ash");
     const note = await createNoteWithText(campaign.id, "S1", "Ash spoke. Ash left.");
 
-    await suppressMention(campaign.id, note.id, ash.id, 0);
+    await suppressMention({ campaignId: campaign.id, noteId: note.id, entityId: ash.id, occurrenceIndex: 0 });
 
     expect((await getBacklinks(ash.id)).map((n) => n.id)).toEqual([note.id]);
   });
@@ -64,7 +64,7 @@ describe("suppressing one occurrence", () => {
     const ash = await createNpc(campaign.id, npcType.id, "Ash");
     const note = await createNoteWithText(campaign.id, "S1", "Ash spoke once.");
 
-    await suppressMention(campaign.id, note.id, ash.id, 0);
+    await suppressMention({ campaignId: campaign.id, noteId: note.id, entityId: ash.id, occurrenceIndex: 0 });
 
     expect(await getBacklinks(ash.id)).toHaveLength(0);
   });
@@ -75,7 +75,7 @@ describe("suppressing one occurrence", () => {
     const suppressedNote = await createNoteWithText(campaign.id, "A", "Ash spoke.");
     const otherNote = await createNoteWithText(campaign.id, "B", "Ash spoke here too.");
 
-    await suppressMention(campaign.id, suppressedNote.id, ash.id, 0);
+    await suppressMention({ campaignId: campaign.id, noteId: suppressedNote.id, entityId: ash.id, occurrenceIndex: 0 });
 
     const backlinks = await getBacklinks(ash.id);
     expect(backlinks.map((n) => n.id)).toEqual([otherNote.id]);
@@ -86,7 +86,7 @@ describe("suppressing one occurrence", () => {
     const ash = await createNpc(campaign.id, npcType.id, "Ash");
     const note = await createNoteWithText(campaign.id, "S1", "Ash spoke.");
 
-    await suppressMention(campaign.id, note.id, ash.id, 0);
+    await suppressMention({ campaignId: campaign.id, noteId: note.id, entityId: ash.id, occurrenceIndex: 0 });
 
     // Suppression is not a back door to disabling the entity globally.
     expect((await db.entities.get(ash.id))?.autoLink).toBe(true);
@@ -99,7 +99,7 @@ describe("suppressing one occurrence", () => {
     const ash = await createNpc(campaign.id, npcType.id, "Ash");
     const note = await createNoteWithText(campaign.id, "S1", "Ash spoke.");
 
-    await suppressMention(campaign.id, note.id, ash.id, 0);
+    await suppressMention({ campaignId: campaign.id, noteId: note.id, entityId: ash.id, occurrenceIndex: 0 });
 
     expect((await db.notes.get(note.id))?.contentText).toBe("Ash spoke.");
   });
@@ -108,7 +108,7 @@ describe("suppressing one occurrence", () => {
     const { campaign, npcType } = fixture;
     const ash = await createNpc(campaign.id, npcType.id, "Ash");
     const note = await createNoteWithText(campaign.id, "S1", "Ash spoke. Ash left.");
-    await suppressMention(campaign.id, note.id, ash.id, 0);
+    await suppressMention({ campaignId: campaign.id, noteId: note.id, entityId: ash.id, occurrenceIndex: 0 });
 
     // The user keeps typing; the save path must not resurrect the mention.
     await writeNote(campaign.id, note.id, "Ash spoke. Ash left. And that was that.");
@@ -121,9 +121,9 @@ describe("suppressing one occurrence", () => {
     const { campaign, npcType } = fixture;
     const ash = await createNpc(campaign.id, npcType.id, "Ash");
     const note = await createNoteWithText(campaign.id, "S1", "Ash spoke. Ash left.");
-    await suppressMention(campaign.id, note.id, ash.id, 0);
+    await suppressMention({ campaignId: campaign.id, noteId: note.id, entityId: ash.id, occurrenceIndex: 0 });
 
-    await reindexCampaign(campaign.id, await buildRecognizer(campaign.id));
+    await reindexCampaign(campaign.id);
 
     const mentions = await db.entityMentions.where("noteId").equals(note.id).toArray();
     expect(mentions.map((m) => m.occurrence)).toEqual([1]);
@@ -134,8 +134,8 @@ describe("suppressing one occurrence", () => {
     const ash = await createNpc(campaign.id, npcType.id, "Ash");
     const note = await createNoteWithText(campaign.id, "S1", "Ash spoke. Ash left.");
 
-    await suppressMention(campaign.id, note.id, ash.id, 0);
-    await suppressMention(campaign.id, note.id, ash.id, 0);
+    await suppressMention({ campaignId: campaign.id, noteId: note.id, entityId: ash.id, occurrenceIndex: 0 });
+    await suppressMention({ campaignId: campaign.id, noteId: note.id, entityId: ash.id, occurrenceIndex: 0 });
 
     expect(await db.mentionSuppressions.count()).toBe(1);
   });
@@ -147,9 +147,9 @@ describe("undoing a suppression", () => {
     const ash = await createNpc(campaign.id, npcType.id, "Ash");
     const note = await createNoteWithText(campaign.id, "S1", "Ash spoke. Ash left.");
 
-    await suppressMention(campaign.id, note.id, ash.id, 0);
-    await unsuppressMention(note.id, ash.id, 0);
-    await reindexCampaign(campaign.id, await buildRecognizer(campaign.id));
+    await suppressMention({ campaignId: campaign.id, noteId: note.id, entityId: ash.id, occurrenceIndex: 0 });
+    await unsuppressMention({ noteId: note.id, entityId: ash.id, occurrenceIndex: 0 });
+    await reindexCampaign(campaign.id);
 
     const mentions = await db.entityMentions.where("noteId").equals(note.id).toArray();
     expect(mentions.map((m) => m.occurrence).sort()).toEqual([0, 1]);
@@ -161,7 +161,7 @@ describe("suppression keys", () => {
     const { campaign, npcType } = fixture;
     const ash = await createNpc(campaign.id, npcType.id, "Ash");
     const note = await createNoteWithText(campaign.id, "S1", "Ash spoke. Ash left.");
-    await suppressMention(campaign.id, note.id, ash.id, 1);
+    await suppressMention({ campaignId: campaign.id, noteId: note.id, entityId: ash.id, occurrenceIndex: 1 });
 
     const keys = await getSuppressionKeysForNote(note.id);
     const recognizer = await buildRecognizer(campaign.id);

@@ -1,17 +1,22 @@
 /**
- * All writes go through here.
+ * The Dexie-backed implementation of the service layer.
  *
- * Components never call Dexie directly. Besides keeping the UI honest, this is
- * the seam where a sync engine eventually lives: every mutation below is the
- * natural place to also enqueue a pending sync operation (PRD §36).
+ * This is the only module that knows the app stores data in IndexedDB.
+ * Components never import it directly — they import `lib/services`, which is
+ * the surface a server API would eventually mirror. Keeping the boundary here
+ * is what makes a second implementation possible without touching the UI.
+ *
+ * It is also the seam where a sync engine lives: every mutation below is the
+ * natural place to enqueue a pending sync operation (PRD §36).
  */
 
-import { db, newId } from "./db";
-import { NOT_DELETED } from "./types";
+import { db, newId } from "../db/db";
+import { NOT_DELETED } from "../db/types";
 import type {
+  Collection,
+  CollectionMemberType,
   Entity,
   EntityAlias,
-  EntityGroup,
   EntityMention,
   EntityType,
   Folder,
@@ -19,17 +24,52 @@ import type {
   Note,
   Relationship,
   Task,
-} from "./types";
+} from "../db/types";
 import { wouldCreateCycle } from "../folders/tree";
 import {
+  EntityRecognizer,
   filterSuppressed,
   suppressionKey,
   type EntityMatch,
 } from "../entities/recognizer";
+import {
+  fail,
+  ok,
+  type CollectionContents,
+  type CollectionMemberRequest,
+  type CreateEntityRequest,
+  type CreateEntityTypeRequest,
+  type CreateNoteRequest,
+  type CreateRelationshipRequest,
+  type EntityMentionCount,
+  type EntityTypeCount,
+  type ImportMarkdownRequest,
+  type ImportOutcome,
+  type Result,
+  type SuppressMentionRequest,
+  type UnsuppressMentionRequest,
+} from "./contracts";
 import { parseMarkdownDocument } from "../import/markdown";
 import { deriveTasksFromContent } from "../notes/derive";
 
 const EMPTY_SUPPRESSIONS: ReadonlySet<string> = new Set();
+
+/**
+ * Builds the campaign's recogniser from stored data.
+ *
+ * Operations that need recognition build it here rather than accepting one.
+ * An automaton is behaviour, not data — it cannot be sent in a request body,
+ * so an operation that required the caller to supply one could never be served
+ * over HTTP. Building it internally costs a scan of the entity vocabulary,
+ * which is small next to the note pass these operations already perform.
+ */
+async function buildCampaignRecognizer(campaignId: ID): Promise<EntityRecognizer> {
+  const [entities, aliases] = await Promise.all([
+    db.entities.where("campaignId").equals(campaignId).toArray(),
+    db.entityAliases.where("campaignId").equals(campaignId).toArray(),
+  ]);
+  return EntityRecognizer.fromCampaign(entities, aliases);
+}
 
 /* ------------------------------------------------------- indexed queries */
 
@@ -78,18 +118,23 @@ export async function listRecentNotes(campaignId: ID, limit: number): Promise<No
 
 /* ------------------------------------------------------------------ notes */
 
-export async function createNote(
-  campaignId: ID,
-  init: Partial<Pick<Note, "title" | "content" | "contentText" | "folderId">> = {},
-): Promise<Note> {
+/**
+ * A new, empty note.
+ *
+ * Takes one request object like every other create, so the whole argument list
+ * is a JSON body: the server-side shape of this is `POST /notes`. Fields the
+ * store owns — id, timestamps, `syncVersion`, `deletedAt` — are assigned here
+ * and are deliberately not accepted from the caller.
+ */
+export async function createNote(request: CreateNoteRequest): Promise<Note> {
   const now = Date.now();
   const note: Note = {
     id: newId(),
-    campaignId,
-    title: init.title ?? "",
-    content: init.content ?? "",
-    contentText: init.contentText ?? "",
-    folderId: init.folderId ?? null,
+    campaignId: request.campaignId,
+    title: request.title ?? "",
+    content: request.content ?? "",
+    contentText: request.contentText ?? "",
+    folderId: request.folderId ?? null,
     visibility: "gm",
     isLocked: false,
     localOnly: false,
@@ -135,13 +180,11 @@ export async function trashNote(noteId: ID): Promise<void> {
  * against the campaign's *current* entity vocabulary — a name flagged while the
  * note sat in the trash is recognised the moment it comes back.
  */
-export async function restoreNote(
-  noteId: ID,
-  recognizer: { findMatches: (text: string) => EntityMatch[] },
-): Promise<void> {
+export async function restoreNote(noteId: ID): Promise<void> {
   const note = await db.notes.get(noteId);
   if (!note) return;
 
+  const recognizer = await buildCampaignRecognizer(note.campaignId);
   await db.notes.update(noteId, { deletedAt: NOT_DELETED });
   await syncMentionsForNote(noteId, note.campaignId, recognizer.findMatches(note.contentText));
   await syncTasksForNote(noteId, note.campaignId, deriveTasksFromContent(note.content));
@@ -193,9 +236,14 @@ export async function deleteNote(noteId: ID): Promise<void> {
       db.noteTags,
       db.visits,
       db.mentionSuppressions,
+      db.collectionMembers,
     ],
     async () => {
       await db.notes.delete(noteId);
+      await db.collectionMembers
+        .where("[memberType+memberId]")
+        .equals(["note", noteId])
+        .delete();
       await db.entityMentions.where("noteId").equals(noteId).delete();
       await db.tasks.where("noteId").equals(noteId).delete();
       await db.favorites.where("noteId").equals(noteId).delete();
@@ -208,16 +256,8 @@ export async function deleteNote(noteId: ID): Promise<void> {
 
 /* ----------------------------------------------------------------- import */
 
-export interface MarkdownFile {
-  name: string;
-  content: string;
-}
-
-export interface ImportOutcome {
-  imported: Note[];
-  /** Files that could not be parsed, kept so the UI can name them. */
-  failed: { name: string; reason: string }[];
-}
+// MarkdownFile and ImportOutcome now live in contracts.ts, with the rest of
+// the shapes that cross the boundary.
 
 /**
  * Imports Markdown files as notes (PRD §19).
@@ -230,11 +270,11 @@ export interface ImportOutcome {
  * lands, which means an import of twenty session logs immediately backlinks
  * every entity the GM has already flagged.
  */
-export async function importMarkdownNotes(
-  campaignId: ID,
-  files: MarkdownFile[],
-  recognizer: { findMatches: (text: string) => EntityMatch[] },
-): Promise<ImportOutcome> {
+export async function importMarkdownNotes({
+  campaignId,
+  files,
+}: ImportMarkdownRequest): Promise<ImportOutcome> {
+  const recognizer = await buildCampaignRecognizer(campaignId);
   const imported: Note[] = [];
   const failed: ImportOutcome["failed"] = [];
 
@@ -242,7 +282,7 @@ export async function importMarkdownNotes(
     try {
       const parsed = parseMarkdownDocument(file.content, file.name);
 
-      const note = await createNote(campaignId, {
+      const note = await createNote({ campaignId: campaignId,
         title: parsed.title,
         content: JSON.stringify(parsed.doc),
         contentText: parsed.text,
@@ -288,10 +328,6 @@ export async function renameFolder(folderId: ID, name: string): Promise<void> {
   await db.folders.update(folderId, { name: trimmed });
 }
 
-export interface MoveFolderResult {
-  moved: boolean;
-  reason?: string;
-}
 
 /**
  * Reparents a folder, refusing moves that would detach a subtree.
@@ -303,10 +339,10 @@ export interface MoveFolderResult {
 export async function moveFolder(
   folderId: ID,
   newParentId: ID | null,
-): Promise<MoveFolderResult> {
+): Promise<Result> {
   const folder = await db.folders.get(folderId);
-  if (!folder) return { moved: false, reason: "That folder no longer exists." };
-  if (folder.parentFolderId === newParentId) return { moved: true };
+  if (!folder) return fail("not_found", "That folder no longer exists.");
+  if (folder.parentFolderId === newParentId) return ok(undefined);
 
   const siblings = await db.folders
     .where("campaignId")
@@ -314,14 +350,11 @@ export async function moveFolder(
     .toArray();
 
   if (wouldCreateCycle(siblings, folderId, newParentId)) {
-    return {
-      moved: false,
-      reason: "A folder cannot be moved inside itself.",
-    };
+    return fail("conflict", "A folder cannot be moved inside itself.");
   }
 
   await db.folders.update(folderId, { parentFolderId: newParentId });
-  return { moved: true };
+  return ok(undefined);
 }
 
 /**
@@ -370,12 +403,12 @@ export async function moveNoteToFolder(
 
 /* --------------------------------------------------------------- entities */
 
-export async function createEntity(
-  campaignId: ID,
-  name: string,
-  entityTypeId: ID,
+export async function createEntity({
+  campaignId,
+  name,
+  entityTypeId,
   description = "",
-): Promise<Entity> {
+}: CreateEntityRequest): Promise<Entity> {
   const now = Date.now();
   const entity: Entity = {
     id: newId(),
@@ -419,7 +452,7 @@ export async function deleteEntity(entityId: ID): Promise<void> {
       db.entityMentions,
       db.relationships,
       db.mentionSuppressions,
-      db.entityGroupMembers,
+      db.collectionMembers,
     ],
     async () => {
       await db.entities.delete(entityId);
@@ -428,7 +461,12 @@ export async function deleteEntity(entityId: ID): Promise<void> {
       await db.relationships.where("sourceEntityId").equals(entityId).delete();
       await db.relationships.where("targetEntityId").equals(entityId).delete();
       await db.mentionSuppressions.where("entityId").equals(entityId).delete();
-      await db.entityGroupMembers.where("entityId").equals(entityId).delete();
+      // Collection memberships referring to a deleted entity would otherwise
+      // leave the collection listing something that no longer exists.
+      await db.collectionMembers
+        .where("[memberType+memberId]")
+        .equals(["entity", entityId])
+        .delete();
     },
   );
 }
@@ -568,10 +606,9 @@ export async function syncMentionsForNote(
  * added alias, an auto-link toggle — which is rare compared to typing. Cost is
  * one linear scan per note, and the automaton is shared across all of them.
  */
-export async function reindexCampaign(
-  campaignId: ID,
-  recognizer: { findMatches: (text: string) => EntityMatch[] },
-): Promise<number> {
+export async function reindexCampaign(campaignId: ID): Promise<number> {
+  const recognizer = await buildCampaignRecognizer(campaignId);
+
   // Trashed notes are excluded by the index range, or the next vocabulary
   // change would rebuild mentions for them and quietly restore their backlinks.
   const [notes, suppressions] = await Promise.all([
@@ -648,7 +685,9 @@ export async function getBacklinks(entityId: ID): Promise<Note[]> {
  * the PRD's 100,000-mention target (§63) — it runs on the Canon, the section
  * views and the graph.
  */
-export async function getMentionCounts(campaignId: ID): Promise<Map<ID, number>> {
+export async function getMentionCounts(
+  campaignId: ID,
+): Promise<EntityMentionCount[]> {
   const keys = (await db.entityMentions
     .where("[campaignId+entityId+noteId]")
     .between(
@@ -661,7 +700,9 @@ export async function getMentionCounts(campaignId: ID): Promise<Map<ID, number>>
   for (const [, entityId] of keys) {
     counts.set(entityId, (counts.get(entityId) ?? 0) + 1);
   }
-  return counts;
+  // An array, not the Map: a Map serialises to `{}`, so returning one would
+  // give a future HTTP client an empty result with no error.
+  return [...counts].map(([entityId, noteCount]) => ({ entityId, noteCount }));
 }
 
 /**
@@ -706,12 +747,12 @@ export async function listEntityTypes(campaignId: ID): Promise<EntityType[]> {
  * everywhere else, including elsewhere in the same note — a correction is a
  * statement about one piece of text, not about the entity.
  */
-export async function suppressMention(
-  campaignId: ID,
-  noteId: ID,
-  entityId: ID,
-  occurrenceIndex: number,
-): Promise<void> {
+export async function suppressMention({
+  campaignId,
+  noteId,
+  entityId,
+  occurrenceIndex,
+}: SuppressMentionRequest): Promise<void> {
   const existing = await db.mentionSuppressions
     .where("[noteId+entityId+occurrenceIndex]")
     .equals([noteId, entityId, occurrenceIndex])
@@ -733,11 +774,11 @@ export async function suppressMention(
     .delete();
 }
 
-export async function unsuppressMention(
-  noteId: ID,
-  entityId: ID,
-  occurrenceIndex: number,
-): Promise<void> {
+export async function unsuppressMention({
+  noteId,
+  entityId,
+  occurrenceIndex,
+}: UnsuppressMentionRequest): Promise<void> {
   await db.mentionSuppressions
     .where("[noteId+entityId+occurrenceIndex]")
     .equals([noteId, entityId, occurrenceIndex])
@@ -752,88 +793,161 @@ export async function getSuppressionKeysForNote(
   return new Set(rows.map((r) => suppressionKey(r.entityId, r.occurrenceIndex)));
 }
 
-/* ----------------------------------------------------------------- groups */
+/* ------------------------------------------------------------ collections */
 
-export async function createEntityGroup(
+export async function createCollection(
   campaignId: ID,
   name: string,
   colorKey = "concept",
-): Promise<EntityGroup> {
-  const group: EntityGroup = {
+): Promise<Collection> {
+  const now = Date.now();
+  const collection: Collection = {
     id: newId(),
     campaignId,
-    name: name.trim(),
+    name: name.trim() || "New collection",
+    description: "",
     colorKey,
-    createdAt: Date.now(),
+    createdAt: now,
+    updatedAt: now,
   };
-  await db.entityGroups.add(group);
-  return group;
+  await db.collections.add(collection);
+  return collection;
 }
 
 /**
- * Recolours a group.
+ * Updates a collection's own fields.
  *
- * Membership is keyed on the group's id, so this touches presentation only —
- * nothing about which entities belong, or about the entities themselves.
+ * Membership is keyed on the collection's id, so nothing here — including a
+ * recolour — can change what is in it.
  */
-export async function setEntityGroupColor(
-  groupId: ID,
-  colorKey: string,
+export async function updateCollection(
+  collectionId: ID,
+  changes: Partial<Pick<Collection, "name" | "description" | "colorKey">>,
 ): Promise<void> {
-  await db.entityGroups.update(groupId, { colorKey });
+  const next = { ...changes, updatedAt: Date.now() };
+  if (typeof next.name === "string") next.name = next.name.trim();
+  await db.collections.update(collectionId, next);
 }
 
-/** Adds an entity to a group. An entity may belong to any number of groups. */
-export async function addEntityToGroup(
-  groupId: ID,
-  entityId: ID,
-): Promise<void> {
-  const existing = await db.entityGroupMembers
-    .where("[groupId+entityId]")
-    .equals([groupId, entityId])
+/**
+ * Deletes a collection and its memberships, never its contents.
+ *
+ * A collection is a statement about notes and entities, not a container that
+ * owns them. Deleting "Red Queen Investigation" must not delete Marrow.
+ */
+export async function deleteCollection(collectionId: ID): Promise<void> {
+  await db.transaction("rw", [db.collections, db.collectionMembers], async () => {
+    await db.collectionMembers.where("collectionId").equals(collectionId).delete();
+    await db.collections.delete(collectionId);
+  });
+}
+
+export async function listCollections(campaignId: ID): Promise<Collection[]> {
+  const collections = await db.collections
+    .where("campaignId")
+    .equals(campaignId)
+    .toArray();
+  return collections.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export async function getCollection(collectionId: ID): Promise<Collection | undefined> {
+  return db.collections.get(collectionId);
+}
+
+/** Adds a note or entity. Membership is idempotent and unordered. */
+export async function addToCollection({
+  collectionId,
+  memberType,
+  memberId,
+}: CollectionMemberRequest): Promise<void> {
+  const existing = await db.collectionMembers
+    .where("[collectionId+memberType+memberId]")
+    .equals([collectionId, memberType, memberId])
     .first();
   if (existing) return;
 
-  await db.entityGroupMembers.add({ id: newId(), groupId, entityId });
+  await db.collectionMembers.add({
+    id: newId(),
+    collectionId,
+    memberType,
+    memberId,
+    addedAt: Date.now(),
+  });
 }
 
-export async function removeEntityFromGroup(
-  groupId: ID,
-  entityId: ID,
-): Promise<void> {
-  await db.entityGroupMembers
-    .where("[groupId+entityId]")
-    .equals([groupId, entityId])
+export async function removeFromCollection({
+  collectionId,
+  memberType,
+  memberId,
+}: CollectionMemberRequest): Promise<void> {
+  await db.collectionMembers
+    .where("[collectionId+memberType+memberId]")
+    .equals([collectionId, memberType, memberId])
     .delete();
 }
 
-export async function getGroupsForEntity(entityId: ID): Promise<EntityGroup[]> {
-  const members = await db.entityGroupMembers
-    .where("entityId")
-    .equals(entityId)
+/**
+ * What is in a collection.
+ *
+ * Trashed notes are filtered out: a deleted note should not keep appearing in
+ * a collection, but its membership is left in place so restoring it puts the
+ * note back where it was.
+ */
+export async function getCollectionContents(
+  collectionId: ID,
+): Promise<CollectionContents> {
+  const members = await db.collectionMembers
+    .where("collectionId")
+    .equals(collectionId)
     .toArray();
-  const groups = await db.entityGroups.bulkGet(members.map((m) => m.groupId));
-  return groups.filter((g): g is EntityGroup => Boolean(g));
+
+  const noteIds = members.filter((m) => m.memberType === "note").map((m) => m.memberId);
+  const entityIds = members
+    .filter((m) => m.memberType === "entity")
+    .map((m) => m.memberId);
+
+  const [notes, entities] = await Promise.all([
+    db.notes.bulkGet(noteIds),
+    db.entities.bulkGet(entityIds),
+  ]);
+
+  return {
+    notes: notes
+      .filter((n): n is Note => Boolean(n) && n!.deletedAt === NOT_DELETED)
+      .sort((a, b) => b.updatedAt - a.updatedAt),
+    entities: entities
+      .filter((e): e is Entity => Boolean(e))
+      .sort((a, b) => a.name.localeCompare(b.name)),
+  };
 }
 
-export async function getEntitiesInGroup(groupId: ID): Promise<Entity[]> {
-  const members = await db.entityGroupMembers
-    .where("groupId")
-    .equals(groupId)
+/** The collections a note or entity belongs to. */
+export async function getCollectionsForMember(
+  memberType: CollectionMemberType,
+  memberId: ID,
+): Promise<Collection[]> {
+  const members = await db.collectionMembers
+    .where("[memberType+memberId]")
+    .equals([memberType, memberId])
     .toArray();
-  const entities = await db.entities.bulkGet(members.map((m) => m.entityId));
-  return entities.filter((e): e is Entity => Boolean(e));
+
+  const collections = await db.collections.bulkGet(
+    members.map((m) => m.collectionId),
+  );
+  return collections
+    .filter((c): c is Collection => Boolean(c))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /* ---------------------------------------------------------- relationships */
 
-export async function createRelationship(
-  campaignId: ID,
-  sourceEntityId: ID,
-  targetEntityId: ID,
-  relationshipType: string,
+export async function createRelationship({
+  campaignId,
+  sourceEntityId,
+  targetEntityId,
+  relationshipType,
   description = "",
-): Promise<Relationship | null> {
+}: CreateRelationshipRequest): Promise<Relationship | null> {
   if (sourceEntityId === targetEntityId) return null;
 
   const relationship: Relationship = {
@@ -891,12 +1005,12 @@ export async function syncTasksForNote(
 
 /* ---------------------------------------------------------- entity types */
 
-export async function createEntityType(
-  campaignId: ID,
-  name: string,
-  icon: string,
-  themeKey: string,
-): Promise<EntityType> {
+export async function createEntityType({
+  campaignId,
+  name,
+  icon,
+  themeKey,
+}: CreateEntityTypeRequest): Promise<EntityType> {
   const count = await db.entityTypes.where("campaignId").equals(campaignId).count();
   const type: EntityType = {
     id: newId(),
@@ -937,13 +1051,6 @@ export async function reorderEntityTypes(orderedIds: ID[]): Promise<void> {
   });
 }
 
-export interface DeleteSectionResult {
-  deleted: boolean;
-  /** Populated when deletion was refused, for the UI to explain. */
-  reason?: string;
-  entityCount?: number;
-}
-
 /**
  * Deletes a section, but only when nothing depends on it.
  *
@@ -952,35 +1059,39 @@ export interface DeleteSectionResult {
  * many entities are in the way is more useful than either cascading the delete
  * or silently reassigning them — hiding is right there as the reversible
  * alternative.
+ *
+ * Returns a `Result` because refusal is an ordinary outcome the UI explains,
+ * not a bug. A server maps `conflict` to 409.
  */
-export async function deleteEntityType(
-  entityTypeId: ID,
-): Promise<DeleteSectionResult> {
+export async function deleteEntityType(entityTypeId: ID): Promise<Result> {
   const entityCount = await db.entities
     .where("entityTypeId")
     .equals(entityTypeId)
     .count();
 
   if (entityCount > 0) {
-    return {
-      deleted: false,
-      entityCount,
-      reason: `${entityCount} ${entityCount === 1 ? "entity is" : "entities are"} still in this section. Move them, or hide the section instead.`,
-    };
+    return fail(
+      "conflict",
+      `${entityCount} ${entityCount === 1 ? "entity is" : "entities are"} still in this section. Move them, or hide the section instead.`,
+      { entityCount },
+    );
   }
 
   await db.entityTypes.delete(entityTypeId);
-  return { deleted: true };
+  return ok(undefined);
 }
 
 /** How many entities sit in each section, for the Canon's cards. */
 export async function getEntityCountsByType(
   campaignId: ID,
-): Promise<Map<ID, number>> {
+): Promise<EntityTypeCount[]> {
   const entities = await db.entities.where("campaignId").equals(campaignId).toArray();
   const counts = new Map<ID, number>();
   for (const entity of entities) {
     counts.set(entity.entityTypeId, (counts.get(entity.entityTypeId) ?? 0) + 1);
   }
-  return counts;
+  return [...counts].map(([entityTypeId, entityCount]) => ({
+    entityTypeId,
+    entityCount,
+  }));
 }

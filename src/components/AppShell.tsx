@@ -9,7 +9,7 @@
  */
 
 import { useCallback, useState } from "react";
-import { createNote } from "@/lib/db/repositories";
+import { createNote } from "@/lib/services";
 import { triggerMarkdownImport } from "@/lib/import/import-trigger";
 import { useCampaign } from "./campaign-context";
 import { useNavigation } from "./navigation-context";
@@ -37,7 +37,7 @@ export function AppShell() {
 
   const handleQuickNote = useCallback(async () => {
     if (!campaign) return;
-    const note = await createNote(campaign.id);
+    const note = await createNote({ campaignId: campaign.id });
     navigate({ kind: "note", noteId: note.id });
   }, [campaign, navigate]);
 
