@@ -37,10 +37,11 @@ export function CommandPalette() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const notes = useLiveQuery(
-    () =>
-      campaign
-        ? db.notes.where("campaignId").equals(campaign.id).toArray()
-        : Promise.resolve<Note[]>([]),
+    async () => {
+      if (!campaign) return [] as Note[];
+      const all = await db.notes.where("campaignId").equals(campaign.id).toArray();
+      return all.filter((note) => note.deletedAt === null);
+    },
     [campaign?.id],
     [] as Note[],
   );

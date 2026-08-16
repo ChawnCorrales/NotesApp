@@ -24,6 +24,7 @@ import { SectionView } from "./SectionView";
 import { Sidebar } from "./Sidebar";
 import { TabBar } from "./TabBar";
 import { TasksView } from "./TasksView";
+import { TrashView } from "./TrashView";
 import { Toolbar } from "./Toolbar";
 
 export function AppShell() {
@@ -139,6 +140,8 @@ function ActiveView({
       return <GraphView />;
     case "tasks":
       return <TasksView />;
+    case "trash":
+      return <TrashView />;
     case "search":
       return <SearchView key={view.query} query={view.query} />;
     case "canon":

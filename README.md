@@ -25,6 +25,11 @@ browser.
 - **Campaign Canon as the home view** — a card per section, counts generated from
   your notes; sections can be renamed, re-iconed, recoloured, reordered, hidden
   and created. Sections *are* the entity categories, so an edit applies everywhere
+- **Nested folders** with drag-and-drop filing, plus a keyboard-reachable
+  "Move to…" for every drag action. Deleting a folder lifts its contents up a
+  level rather than deleting them
+- **Deleting notes** moves them to a **Trash** you can restore from; permanent
+  deletion is a separate, confirmed step
 - **Tabs** with independent Back/Forward history per tab
 - **Menu bar** (File / Edit / View / Insert), a global **+** button, focus mode,
   and a switch for whether the app starts on the Canon or the Mind Map
@@ -49,7 +54,9 @@ browser.
 
 - Authentication and sync. The Postgres schema and RLS policies live in
   `supabase/migrations/`, but nothing in the app talks to them — see below.
-- Folders, tags, and favourites exist in the data model but have no UI.
+- Tags and favourites exist in the data model but have no UI.
+- Collections (bundling notes and entities without moving them) are still the
+  existing entity-only `EntityGroup` tables.
 - Conflict resolution, locked notes, and local-only notes: columns only.
 - Everything the PRD defers to Phase 2+ (AI, semantic search, players, sharing).
 

@@ -9,7 +9,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { createEntityType, createNote } from "@/lib/db/repositories";
+import { createEntityType, createFolder, createNote } from "@/lib/db/repositories";
 import { useCampaign } from "./campaign-context";
 import { useNavigation } from "./navigation-context";
 import { CreateEntityDialog } from "./CreateEntityDialog";
@@ -47,6 +47,12 @@ export function GlobalCreate() {
     navigate({ kind: "note", noteId: note.id });
   }, [campaign, navigate]);
 
+  const newFolder = useCallback(async () => {
+    if (!campaign) return;
+    setOpen(false);
+    await createFolder(campaign.id, "New folder", null);
+  }, [campaign]);
+
   const newSection = useCallback(async () => {
     if (!campaign) return;
     setOpen(false);
@@ -64,6 +70,11 @@ export function GlobalCreate() {
             className="mb-2 w-52 overflow-hidden rounded-lg border border-strong bg-raised shadow-2xl"
           >
             <MenuItem label="New note" hint="blank note" onClick={() => void newNote()} />
+            <MenuItem
+              label="New folder"
+              hint="at the top level"
+              onClick={() => void newFolder()}
+            />
             <MenuItem
               label="New entity"
               hint="person, place, thing"
