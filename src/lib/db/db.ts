@@ -47,8 +47,13 @@ export class NotesAppDatabase extends Dexie {
   entityGroups!: Table<EntityGroup, string>;
   entityGroupMembers!: Table<EntityGroupMember, string>;
 
-  constructor() {
-    super("notesapp");
+  /**
+   * `name` is a parameter so migration tests can stand up a database under the
+   * historical schema and then open it through this class, exercising the real
+   * upgrade path rather than a reimplementation of it.
+   */
+  constructor(name = "notesapp") {
+    super(name);
 
     this.version(1).stores({
       campaigns: "id, name, updatedAt",

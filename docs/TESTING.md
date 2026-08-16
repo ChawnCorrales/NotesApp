@@ -158,15 +158,35 @@ load the equivalent rows. Timing against the fake backend would have pushed the
 code toward the option that is *slower* in production. That path is covered for
 correctness only, and was measured in a real browser.
 
-## Known gaps
+## Migrations
 
-- **Migration paths have no tests.** This is a real gap, not a theoretical one:
-  editing an already-applied Dexie version's upgrade does not re-run it, which
-  left existing notes holding `deletedAt: null`. Once that field became part of
-  an index, IndexedDB skipped those records and the notes vanished from every
-  list while sitting intact in storage. A repair migration fixed it, and
-  `access-patterns.test.ts` now states the invariant, but nothing exercises an
-  actual version-to-version upgrade.
+`tests/integration/migrations.test.ts` builds a database under each older
+released schema, seeds it with data shaped the way that version actually wrote
+it, then opens it with the current `NotesAppDatabase` and lets Dexie run the
+upgrades — the same sequence that happens on a real machine.
+
+Every released version is covered, and each is checked for notes and their
+content, entities, categories, aliases, mentions, relationships, folder
+hierarchy, filing, tasks, tags, favourites, visit history, entity groups, and
+false-positive corrections. Repeat upgrades and an empty database are covered
+too.
+
+Two rules make these worth having:
+
+**Assert through the app's queries, not raw table reads.** When `deletedAt`
+became part of an index, every note was still in its table *and* invisible to
+every list in the UI. A test reading `db.notes.toArray()` would have passed
+while the user saw nothing. So the assertions go through `listLiveNotes`,
+`getBacklinks`, `listAliases` and friends.
+
+**`tests/helpers/legacy-db.ts` is frozen history.** Those schema snapshots
+describe what is on real users' machines. Editing one to make a test pass stops
+it describing reality, and the next migration bug ships unnoticed.
+
+These tests were verified to fail: disabling the version 6 repair fails exactly
+the five assertions about note visibility on the versions that wrote `null`.
+
+## Known gaps
 
 - No test asserts the *visual* treatment of a mention beyond its category
   attribute. Entity styling is deliberately subtle and would make for brittle
