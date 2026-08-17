@@ -202,6 +202,22 @@ export interface CollectionContents {
   entities: Entity[];
 }
 
+/**
+ * A collection plus what it holds, without the contents themselves.
+ *
+ * The browse-all view needs a count per collection and nothing else. Asking
+ * `getCollectionContents` once per collection would be an N+1 against the
+ * members table and would load every note body to display a number.
+ */
+export interface CollectionSummary {
+  collectionId: ID;
+  name: string;
+  description: string;
+  colorKey: string;
+  noteCount: number;
+  entityCount: number;
+}
+
 /** Outcome of a Markdown import, which can partly succeed. */
 export interface ImportOutcome {
   imported: Note[];

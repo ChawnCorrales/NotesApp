@@ -11,8 +11,14 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { createNote, listRecentNotes } from "@/lib/services";
+import {
+  createNote,
+  listCollectionSummaries,
+  listRecentNotes,
+  type CollectionSummary,
+} from "@/lib/services";
 import type { Note } from "@/lib/db/types";
+import { accentVar } from "@/lib/theme/palette";
 import { useCampaign } from "./campaign-context";
 import { useNavigation } from "./navigation-context";
 import { ImportMarkdown } from "./ImportMarkdown";
@@ -37,6 +43,15 @@ export function Sidebar() {
         : Promise.resolve<Note[]>([]),
     [campaignId],
     [] as Note[],
+  );
+
+  const collections = useLiveQuery(
+    () =>
+      campaignId
+        ? listCollectionSummaries(campaignId)
+        : Promise.resolve<CollectionSummary[]>([]),
+    [campaignId],
+    [] as CollectionSummary[],
   );
 
   const entitiesByType = useMemo(() => {
@@ -172,6 +187,55 @@ export function Sidebar() {
         <div className="mt-3">
           <FolderTree />
         </div>
+
+        {/* Collections sit between the Canon and the folder tree because they
+            are a third way to reach the same material: by type, by bundle, by
+            file. Every collection is listed rather than hidden behind the
+            browse-all view — §48 warns against hidden navigation. */}
+        <Section title="Collections">
+          <Item
+            active={current.kind === "collections"}
+            onClick={() => navigate({ kind: "collections" })}
+          >
+            ◫ All collections
+          </Item>
+          {collections.map((collection) => (
+            <button
+              key={collection.collectionId}
+              type="button"
+              data-testid="sidebar-collection"
+              onClick={() =>
+                navigate({ kind: "collection", collectionId: collection.collectionId })
+              }
+              onAuxClick={(e) => {
+                if (e.button === 1) {
+                  e.preventDefault();
+                  openInNewTab({
+                    kind: "collection",
+                    collectionId: collection.collectionId,
+                  });
+                }
+              }}
+              className={`flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm transition-colors ${
+                current.kind === "collection" &&
+                current.collectionId === collection.collectionId
+                  ? "bg-raised text-candle"
+                  : "text-ink-muted hover:bg-raised hover:text-ink"
+              }`}
+            >
+              <span
+                aria-hidden="true"
+                className="h-1.5 w-1.5 shrink-0 rounded-full"
+                style={{ backgroundColor: accentVar(collection.colorKey) }}
+              />
+              <span className="flex-1 truncate">{collection.name}</span>
+              <span className="text-xs text-ink-faint">
+                {collection.noteCount + collection.entityCount}
+              </span>
+            </button>
+          ))}
+          {collections.length === 0 && <Empty>No collections yet.</Empty>}
+        </Section>
 
         <Section title="Campaign">
           <Item active={isActive("tasks")} onClick={() => navigate({ kind: "tasks" })}>

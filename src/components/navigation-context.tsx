@@ -28,6 +28,8 @@ export type View =
   | { kind: "section"; entityTypeId: string }
   | { kind: "note"; noteId: string }
   | { kind: "entity"; entityId: string }
+  | { kind: "collections" }
+  | { kind: "collection"; collectionId: string }
   | { kind: "graph" }
   | { kind: "tasks" }
   | { kind: "trash" }
@@ -69,6 +71,8 @@ export function sameView(a: View, b: View): boolean {
   if (a.kind === "section" && b.kind === "section")
     return a.entityTypeId === b.entityTypeId;
   if (a.kind === "search" && b.kind === "search") return a.query === b.query;
+  if (a.kind === "collection" && b.kind === "collection")
+    return a.collectionId === b.collectionId;
   return true;
 }
 

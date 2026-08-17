@@ -37,6 +37,10 @@ browser.
 - Note authoring: rich text, Markdown input rules, tables, task checkboxes, links
 - **Markdown import** — bring in existing `.md` files; headings, tables, task lists
   and links survive, and imported notes are recognised and backlinked immediately
+- **Floating selection menu** — highlight a phrase and answer what it is without
+  leaving the sentence: **Create entity**, **Link to existing** (names the phrase
+  as another name for something you already have, everywhere), or **Ignore here**
+  when the app has recognised the wrong thing
 - Create an entity from selected text, with custom categories and aliases
 - Automatic recognition of every later mention, including aliases
 - Per-occurrence **"Not this entity"** correction, which never disables the entity
@@ -47,16 +51,15 @@ browser.
 - Search across note text, titles, entity names and aliases
 - Command palette (`Ctrl`/`Cmd` + `K`) and Back/Forward history (`Alt` + `←`/`→`)
 - Local persistence in IndexedDB; occult default theme
-- Entity groups in the data layer (multi-group membership, colour as presentation
-  only) — no group UI yet
+- Collections: bundles that hold notes *and* entities, added from the note or
+  entity you are already looking at, browsable and listed in the sidebar
 
 **Not built yet**
 
 - Authentication and sync. The Postgres schema and RLS policies live in
   `supabase/migrations/`, but nothing in the app talks to them — see below.
 - Tags and favourites exist in the data model but have no UI.
-- Collections (bundling notes and entities without moving them) are still the
-  existing entity-only `EntityGroup` tables.
+- Collection membership is manual only — nothing joins a collection by rule.
 - Conflict resolution, locked notes, and local-only notes: columns only.
 - Everything the PRD defers to Phase 2+ (AI, semantic search, players, sharing).
 

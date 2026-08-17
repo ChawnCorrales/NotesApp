@@ -19,24 +19,9 @@ import {
   updateEntityType,
 } from "@/lib/services";
 import type { EntityType } from "@/lib/db/types";
+import { THEME_KEYS } from "@/lib/theme/palette";
 import { useCampaign } from "./campaign-context";
 import { useNavigation } from "./navigation-context";
-
-/** Palette keys a section can be coloured with; mirrors the theme's entity vars. */
-const THEME_KEYS = [
-  "npc",
-  "pc",
-  "location",
-  "faction",
-  "item",
-  "event",
-  "quest",
-  "deity",
-  "creature",
-  "organization",
-  "mystery",
-  "concept",
-] as const;
 
 const ICON_CHOICES = [
   "☿", "✦", "⌂", "⚑", "◈", "✧", "❖", "☉", "☠", "⚿", "⁇", "◇",

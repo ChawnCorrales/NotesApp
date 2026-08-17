@@ -32,6 +32,7 @@ import type {
 } from "@/lib/db/types";
 import { useCampaign } from "./campaign-context";
 import { useNavigation } from "./navigation-context";
+import { AddToCollection } from "./AddToCollection";
 
 export function EntityPage({ entityId }: { entityId: string }) {
   const { entities, entityTypes, entityById, typeById } = useCampaign();
@@ -152,6 +153,8 @@ export function EntityPage({ entityId }: { entityId: string }) {
             Mentioned in {mentioningNotes.length}{" "}
             {mentioningNotes.length === 1 ? "note" : "notes"}
           </span>
+
+          <AddToCollection memberType="entity" memberId={entityId} />
 
           {/* PRD §10: let the user opt a noisy entity out of recognition
               without deleting it and losing its relationships. */}

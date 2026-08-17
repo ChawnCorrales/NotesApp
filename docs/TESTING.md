@@ -108,9 +108,37 @@ separately.
 **Graph.** Entities become nodes, stated relationships become edges, clicking a
 node opens that entity, and three aliases of one entity still produce one node.
 
-**Groups.** An entity can belong to many groups; membership changes never modify
-the entity; group colour is presentation and can be changed without affecting
-membership, and two groups sharing a colour stay distinct.
+**The selection menu.** Selecting a phrase offers Create, Link to existing, and
+— only when the selection covers a recognised mention — Ignore. The tests assert
+what each produces rather than how the menu looks: linking writes an alias, so
+the phrase must light up in the note being written, in the note already written,
+and in one written afterwards. Ignoring must remove exactly one occurrence,
+leave the others, and survive a reload.
+
+One caution recorded here because it cost time. A test that navigates away and
+back cannot prove anything about in-editor state: the editor is keyed on the note
+id, so returning remounts it and resets everything the test meant to check. The
+first version of the dismissal test did exactly that and passed against a
+deliberately broken build. If a test involves leaving the note, it is testing
+persistence, not the editor.
+
+**Collections.** A collection holds notes *and* entities, and never owns them:
+deleting one leaves every note and entity where it was, and removing a member
+removes the membership only. Membership survives what a folder move would break,
+because filing is storage and a collection is meaning. A trashed note leaves the
+collection but keeps its membership, so restoring puts it back.
+
+The counts shown on the browse-all cards and in the sidebar come from
+`listCollectionSummaries`, which is a different code path from the contents the
+collection actually displays — so a test asserts the two agree. It also has to
+survive a membership pointing at something that no longer exists, which is what
+an interrupted delete leaves behind; deleting an entity alone never exercises
+that, because it cascades its memberships away first.
+
+At the component level, the tests drive what a GM does: tick a box, type a name.
+Creating a collection from inside the note being written is the interaction
+worth protecting — being sent to a management screen mid-sentence is exactly the
+interruption §3 forbids.
 
 ## Performance
 

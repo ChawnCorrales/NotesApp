@@ -14,6 +14,8 @@ import { triggerMarkdownImport } from "@/lib/import/import-trigger";
 import { useCampaign } from "./campaign-context";
 import { useNavigation } from "./navigation-context";
 import { CampaignCanon } from "./CampaignCanon";
+import { CollectionView } from "./CollectionView";
+import { CollectionsView } from "./CollectionsView";
 import { CommandPalette } from "./CommandPalette";
 import { EntityPage } from "./EntityPage";
 import { GlobalCreate } from "./GlobalCreate";
@@ -136,6 +138,12 @@ function ActiveView({
       return <EntityPage key={view.entityId} entityId={view.entityId} />;
     case "section":
       return <SectionView key={view.entityTypeId} entityTypeId={view.entityTypeId} />;
+    case "collections":
+      return <CollectionsView />;
+    case "collection":
+      // Keyed for the same reason as the editor: the local name and description
+      // drafts must not follow the user to a different collection.
+      return <CollectionView key={view.collectionId} collectionId={view.collectionId} />;
     case "graph":
       return <GraphView />;
     case "tasks":

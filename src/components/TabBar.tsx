@@ -9,8 +9,8 @@
  */
 
 import { useLiveQuery } from "dexie-react-hooks";
-import { getNote } from "@/lib/services";
-import type { Note } from "@/lib/db/types";
+import { getCollection, getNote } from "@/lib/services";
+import type { Collection, Note } from "@/lib/db/types";
 import { useCampaign } from "./campaign-context";
 import { useNavigation, type View } from "./navigation-context";
 
@@ -27,6 +27,12 @@ function staticLabel(view: View): Label {
       return { icon: "☑", text: "Tasks" };
     case "search":
       return { icon: "⌕", text: view.query || "Search" };
+    case "collections":
+      return { icon: "◫", text: "Collections" };
+    // Without this a trash tab fell through to the default and read
+    // "Campaign canon", which is a different view entirely.
+    case "trash":
+      return { icon: "🗑", text: "Trash" };
     case "canon":
     default:
       return { icon: "❦", text: "Campaign canon" };
@@ -44,6 +50,14 @@ function useTabLabel(view: View): Label {
     [view.kind === "note" ? view.noteId : null],
   );
 
+  const collection = useLiveQuery(
+    () =>
+      view.kind === "collection"
+        ? getCollection(view.collectionId)
+        : Promise.resolve<Collection | undefined>(undefined),
+    [view.kind === "collection" ? view.collectionId : null],
+  );
+
   if (view.kind === "note") {
     return { icon: "✎", text: note?.title?.trim() || "Untitled note" };
   }
@@ -57,6 +71,10 @@ function useTabLabel(view: View): Label {
   if (view.kind === "section") {
     const type = typeById.get(view.entityTypeId);
     return { icon: type?.icon ?? "❦", text: type?.name ?? "Section" };
+  }
+
+  if (view.kind === "collection") {
+    return { icon: "◫", text: collection?.name ?? "Collection" };
   }
 
   return staticLabel(view);

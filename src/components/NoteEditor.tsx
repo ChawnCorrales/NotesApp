@@ -27,6 +27,7 @@ import {
 import { Placeholder } from "@tiptap/extensions";
 import { useLiveQuery } from "dexie-react-hooks";
 import {
+  addAlias,
   getNote,
   listSuppressionsForNote,
   suppressMention,
@@ -46,7 +47,9 @@ import {
 } from "@/lib/editor/entity-highlight";
 import { useCampaign } from "./campaign-context";
 import { useNavigation } from "./navigation-context";
+import { AddToCollection } from "./AddToCollection";
 import { CreateEntityDialog } from "./CreateEntityDialog";
+import { SelectionMenu, type SelectionTarget } from "./SelectionMenu";
 
 /** How long to wait after the last keystroke before persisting. */
 const SAVE_DEBOUNCE_MS = 600;
@@ -89,8 +92,7 @@ export function NoteEditor({ noteId }: { noteId: string }) {
   const [titleDraft, setTitleDraft] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [pendingEntityName, setPendingEntityName] = useState<string | null>(null);
-  /** Text the user has highlighted, and could promote to an entity. */
-  const [selectedText, setSelectedText] = useState("");
+  const [selection, setSelection] = useState<SelectionTarget | null>(null);
   const [popover, setPopover] = useState<MentionPopoverState | null>(null);
 
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -232,9 +234,30 @@ export function NoteEditor({ noteId }: { noteId: string }) {
 
     const update = () => {
       const { from, to, empty } = editor.state.selection;
-      setSelectedText(
-        empty ? "" : editor.state.doc.textBetween(from, to, " ").trim(),
-      );
+      const text = empty ? "" : editor.state.doc.textBetween(from, to, " ").trim();
+
+      if (!text) {
+        setSelection(null);
+        return;
+      }
+
+      // Positioned from the DOM range rather than ProseMirror coordinates: the
+      // menu is fixed-position chrome, so it wants viewport pixels, and this is
+      // the same rectangle the user can see highlighted.
+      const domSelection = window.getSelection();
+      if (!domSelection || domSelection.rangeCount === 0) {
+        setSelection(null);
+        return;
+      }
+
+      const range = domSelection.getRangeAt(0);
+      const rect = range.getBoundingClientRect();
+      setSelection({
+        text,
+        x: rect.left,
+        y: rect.bottom,
+        mention: mentionWithinRange(range),
+      });
     };
 
     update();
@@ -283,6 +306,40 @@ export function NoteEditor({ noteId }: { noteId: string }) {
   const dismissPopover = useCallback(() => setPopover(null), []);
 
   /**
+   * Names the selected phrase as another name for an entity that already
+   * exists.
+   *
+   * Only an alias is written. The recogniser is rebuilt from the campaign's
+   * vocabulary whenever aliases change, and that rebuild repaints this note and
+   * re-indexes the rest — so the phrase lights up here and backlinks appear
+   * everywhere else without this component arranging any of it.
+   */
+  const handleLink = useCallback(
+    async (entityId: string) => {
+      if (!selection) return;
+      await addAlias(entityId, selection.text);
+      setSelection(null);
+      const instance = editorRef.current;
+      if (instance) await persist(instance);
+    },
+    [selection, persist],
+  );
+
+  /** Rejects the mention the selection covers, then re-saves so it disappears. */
+  const handleIgnoreSelection = useCallback(async () => {
+    if (!selection?.mention || !campaign) return;
+    await suppressMention({
+      campaignId: campaign.id,
+      noteId,
+      entityId: selection.mention.entityId,
+      occurrenceIndex: selection.mention.occurrence,
+    });
+    setSelection(null);
+    const instance = editorRef.current;
+    if (instance) await persist(instance);
+  }, [selection, campaign, noteId, persist]);
+
+  /**
    * Records a correction, then re-saves so the note's mentions — and therefore
    * the entity's backlinks — reflect it immediately rather than at the next
    * keystroke.
@@ -318,17 +375,9 @@ export function NoteEditor({ noteId }: { noteId: string }) {
           aria-label="Note title"
           className="w-full bg-transparent text-2xl font-semibold text-ink placeholder:text-ink-faint focus:outline-none"
         />
-        <div className="mt-2 flex items-center gap-3 text-xs text-ink-faint">
+        <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-ink-faint">
           <span>{saving ? "Saving…" : "Saved locally"}</span>
-          {selectedText && (
-            <button
-              type="button"
-              onClick={() => setPendingEntityName(selectedText)}
-              className="rounded border border-candle/50 px-2 py-0.5 text-candle transition-colors hover:bg-candle/10"
-            >
-              Create entity from “{truncate(selectedText, 32)}”
-            </button>
-          )}
+          <AddToCollection memberType="note" memberId={noteId} />
         </div>
       </div>
 
@@ -353,6 +402,17 @@ export function NoteEditor({ noteId }: { noteId: string }) {
         />
       )}
 
+      {/* Hidden while the create dialog is up, so the two do not stack. */}
+      {selection && !pendingEntityName && (
+        <SelectionMenu
+          target={selection}
+          onCreate={() => setPendingEntityName(selection.text)}
+          onLink={(entityId) => void handleLink(entityId)}
+          onIgnore={() => void handleIgnoreSelection()}
+          onDismiss={() => setSelection(null)}
+        />
+      )}
+
       {pendingEntityName && campaign && (
         <CreateEntityDialog
           campaignId={campaign.id}
@@ -364,8 +424,31 @@ export function NoteEditor({ noteId }: { noteId: string }) {
   );
 }
 
-function truncate(value: string, max: number): string {
-  return value.length <= max ? value : `${value.slice(0, max - 1)}…`;
+
+/**
+ * The recognised mention a selection covers, if any.
+ *
+ * Decorations are not nodes, so this reads the rendered DOM rather than the
+ * document: `intersectsNode` catches a selection that merely overlaps the
+ * mention, which is what a user dragging roughly across a name produces.
+ * Returns the first hit — a selection spanning several mentions is ambiguous,
+ * and acting on the first is more predictable than guessing.
+ */
+function mentionWithinRange(
+  range: Range,
+): { entityId: string; occurrence: number } | null {
+  const editorEl = range.commonAncestorContainer instanceof Element
+    ? range.commonAncestorContainer.closest(".ProseMirror")
+    : range.commonAncestorContainer.parentElement?.closest(".ProseMirror");
+  if (!editorEl) return null;
+
+  for (const el of editorEl.querySelectorAll(".entity-mention")) {
+    if (!range.intersectsNode(el)) continue;
+    const entityId = el.getAttribute("data-entity-id");
+    const occurrence = Number(el.getAttribute("data-entity-occurrence"));
+    if (entityId && !Number.isNaN(occurrence)) return { entityId, occurrence };
+  }
+  return null;
 }
 
 /**

@@ -9,7 +9,12 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { createEntityType, createFolder, createNote } from "@/lib/services";
+import {
+  createCollection,
+  createEntityType,
+  createFolder,
+  createNote,
+} from "@/lib/services";
 import { useCampaign } from "./campaign-context";
 import { useNavigation } from "./navigation-context";
 import { CreateEntityDialog } from "./CreateEntityDialog";
@@ -65,6 +70,15 @@ export function GlobalCreate() {
     navigate({ kind: "canon" });
   }, [campaign, navigate]);
 
+  // Opened straight away: a collection with no name and nothing in it is not a
+  // thing the user made, it is a thing they are about to make.
+  const newCollection = useCallback(async () => {
+    if (!campaign) return;
+    setOpen(false);
+    const collection = await createCollection(campaign.id, "New collection");
+    navigate({ kind: "collection", collectionId: collection.id });
+  }, [campaign, navigate]);
+
   return (
     <>
       <div ref={containerRef} className="fixed bottom-6 right-6 z-40">
@@ -92,6 +106,11 @@ export function GlobalCreate() {
               label="New Canon section"
               hint="a category"
               onClick={() => void newSection()}
+            />
+            <MenuItem
+              label="New collection"
+              hint="notes and entities"
+              onClick={() => void newCollection()}
             />
           </div>
         )}
