@@ -264,41 +264,93 @@ const BUILT_IN_ENTITY_TYPES: ReadonlyArray<{
 ];
 
 /**
+ * Chooses which campaign to open when more than one exists.
+ *
+ * There should only ever be one, but the provisioning race below shipped, so
+ * databases in the wild contain a duplicate empty campaign alongside the real
+ * one. Opening the most recently updated of the two is a coin flip, and losing
+ * it shows the user an empty app while every note they have written is still on
+ * disk — the worst failure this app can have short of actually deleting
+ * something.
+ *
+ * So content wins over recency: the campaign holding notes and entities is the
+ * one the user means. Recency only breaks ties, which is what decides a genuinely
+ * fresh install. Nothing is deleted here — the stray campaign is left alone
+ * rather than cleaned up automatically, because guessing wrong about which one
+ * is disposable is not a mistake worth risking silently.
+ */
+async function pickCampaign(campaigns: Campaign[]): Promise<Campaign> {
+  if (campaigns.length === 1) return campaigns[0];
+
+  // Ascending by updatedAt, so a later campaign wins an equal-content tie.
+  const ordered = [...campaigns].sort((a, b) => a.updatedAt - b.updatedAt);
+
+  let best = ordered[0];
+  let bestCount = -1;
+  for (const campaign of ordered) {
+    const [notes, entities] = await Promise.all([
+      db.notes.where("campaignId").equals(campaign.id).count(),
+      db.entities.where("campaignId").equals(campaign.id).count(),
+    ]);
+    const count = notes + entities;
+    if (count >= bestCount) {
+      best = campaign;
+      bestCount = count;
+    }
+  }
+  return best;
+}
+
+/**
  * Ensures there is a campaign to write into.
  *
  * The PRD is emphatic that nothing should stand between opening the app and
  * typing (§3, §24), so first launch silently provisions a campaign and its
  * entity categories rather than presenting a setup wizard.
+ *
+ * The whole check-and-create runs in one read-write transaction. It used to
+ * read first and create afterwards, which is a check-then-act race: two callers
+ * starting together both awaited the read, both saw an empty table, and both
+ * provisioned a campaign two milliseconds apart. IndexedDB serialises read-write
+ * transactions over the same store, so the second caller here observes the
+ * first's write instead of racing it.
  */
 export async function ensureCampaign(): Promise<Campaign> {
-  const existing = await db.campaigns.orderBy("updatedAt").last();
-  if (existing) return existing;
+  return db.transaction(
+    "rw",
+    db.campaigns,
+    db.entityTypes,
+    db.notes,
+    db.entities,
+    async () => {
+      const existing = await db.campaigns.toArray();
+      if (existing.length > 0) return pickCampaign(existing);
 
-  const now = Date.now();
-  const campaign: Campaign = {
-    id: newId(),
-    name: "Untitled Campaign",
-    description: "",
-    themeId: "grimoire",
-    createdAt: now,
-    updatedAt: now,
-  };
-
-  await db.transaction("rw", db.campaigns, db.entityTypes, async () => {
-    await db.campaigns.add(campaign);
-    await db.entityTypes.bulkAdd(
-      BUILT_IN_ENTITY_TYPES.map((type, index) => ({
+      const now = Date.now();
+      const campaign: Campaign = {
         id: newId(),
-        campaignId: campaign.id,
-        name: type.name,
-        icon: type.icon,
-        themeKey: type.themeKey,
-        isBuiltIn: true,
-        sortOrder: index,
-        hidden: false,
-      })),
-    );
-  });
+        name: "Untitled Campaign",
+        description: "",
+        themeId: "grimoire",
+        createdAt: now,
+        updatedAt: now,
+      };
 
-  return campaign;
+      await db.campaigns.add(campaign);
+      await db.entityTypes.bulkAdd(
+        BUILT_IN_ENTITY_TYPES.map((type, index) => ({
+          id: newId(),
+          campaignId: campaign.id,
+          name: type.name,
+          icon: type.icon,
+          themeKey: type.themeKey,
+          isBuiltIn: true,
+          sortOrder: index,
+          hidden: false,
+        })),
+      );
+
+      return campaign;
+    },
+  );
 }
