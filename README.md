@@ -37,6 +37,10 @@ browser.
 - Note authoring: rich text, Markdown input rules, tables, task checkboxes, links
 - **Markdown import** — bring in existing `.md` files; headings, tables, task lists
   and links survive, and imported notes are recognised and backlinked immediately
+- **Floating selection menu** — highlight a phrase and answer what it is without
+  leaving the sentence: **Create entity**, **Link to existing** (names the phrase
+  as another name for something you already have, everywhere), or **Ignore here**
+  when the app has recognised the wrong thing
 - Create an entity from selected text, with custom categories and aliases
 - Automatic recognition of every later mention, including aliases
 - Per-occurrence **"Not this entity"** correction, which never disables the entity

@@ -59,7 +59,7 @@ export async function typeInEditor(page: Page, text: string): Promise<void> {
  * selection tests the right thing. ProseMirror still syncs from the DOM
  * selection, so everything downstream is exercised for real.
  */
-async function selectWordInEditor(page: Page, word: string): Promise<void> {
+export async function selectWordInEditor(page: Page, word: string): Promise<void> {
   const selected = await page.evaluate((target) => {
     const editor = document.querySelector<HTMLElement>(".ProseMirror");
     if (!editor) return false;
