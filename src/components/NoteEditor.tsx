@@ -417,6 +417,9 @@ export function NoteEditor({ noteId }: { noteId: string }) {
         <CreateEntityDialog
           campaignId={campaign.id}
           initialName={pendingEntityName}
+          // The note's own text is what the category is guessed from — the GM
+          // has usually already written what the thing is.
+          context={note.contentText}
           onClose={() => setPendingEntityName(null)}
         />
       )}

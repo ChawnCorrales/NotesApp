@@ -41,6 +41,9 @@ browser.
   leaving the sentence: **Create entity**, **Link to existing** (names the phrase
   as another name for something you already have, everywhere), or **Ignore here**
   when the app has recognised the wrong thing
+- **Category inference** — write "Ash is a god of the deep roads" and creating
+  Ash pre-selects Deities, saying which word it read. Always a suggestion, never
+  a decision; it stays silent when the sentence does not say
 - Create an entity from selected text, with custom categories and aliases
 - Automatic recognition of every later mention, including aliases
 - Per-occurrence **"Not this entity"** correction, which never disables the entity

@@ -108,6 +108,23 @@ separately.
 **Graph.** Entities become nodes, stated relationships become edges, clicking a
 node opens that entity, and three aliases of one entity still produce one node.
 
+**Type inference.** Guessing a category from "Ash is a god" is a pure function
+over text, so it is tested as one — no editor, no database. The suggestions are
+the easy half; most of that file asserts what it *refuses* to guess. A wrong
+category that pre-selects itself and gets confirmed by someone not really reading
+is a mis-filed entity nobody notices, so abstaining is the behaviour under test:
+no classification in the sentence, a noun merely nearby, a classification
+belonging to a different sentence, an epithet that is not a kind of thing.
+
+Those tests earned their place immediately — four real bugs in the first
+implementation, including reading "Ash is a god of the deep roads" as a *road*
+and "a merchant before the war" as an *event*, both because the scan ran past the
+noun phrase into the following clause.
+
+The browser tests cover only what a browser can prove: that the note's text
+reaches the dialog, that the guess resolves to a category the campaign actually
+has, and that overriding it sticks.
+
 **The selection menu.** Selecting a phrase offers Create, Link to existing, and
 — only when the selection covers a recognised mention — Ignore. The tests assert
 what each produces rather than how the menu looks: linking writes an alias, so

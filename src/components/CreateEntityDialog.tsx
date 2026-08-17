@@ -12,6 +12,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createEntity, addAlias } from "@/lib/services";
+import { inferEntityType } from "@/lib/entities/type-inference";
 import { useCampaign } from "./campaign-context";
 import { useNavigation } from "./navigation-context";
 
@@ -20,6 +21,13 @@ interface Props {
   initialName: string;
   /** Preselects a category, e.g. when creating from within a Canon section. */
   defaultTypeId?: string;
+  /**
+   * The text the name was selected from, used to guess a category.
+   *
+   * Absent when there is no surrounding writing to read — creating from a Canon
+   * section or the global + button — in which case nothing is guessed.
+   */
+  context?: string;
   onClose: () => void;
 }
 
@@ -27,16 +35,52 @@ export function CreateEntityDialog({
   campaignId,
   initialName,
   defaultTypeId,
+  context,
   onClose,
 }: Props) {
   const { entityTypes, entities } = useCampaign();
   const { navigate } = useNavigation();
 
   const [name, setName] = useState(initialName);
-  const [typeId, setTypeId] = useState<string>(defaultTypeId ?? "");
+  /**
+   * The category the user has actually clicked.
+   *
+   * `null` means "hasn't chosen", which is what lets the guess act as a default
+   * without ever overwriting a decision. Same shape as the draft-versus-stored
+   * pattern used for text fields elsewhere, and it avoids syncing a suggestion
+   * into state from an effect — the categories arrive from a live query, so
+   * that would mean a cascading render every time they resolved.
+   */
+  const [chosenTypeId, setChosenTypeId] = useState<string | null>(
+    defaultTypeId ?? null,
+  );
   const [busy, setBusy] = useState(false);
 
   const nameInput = useRef<HTMLInputElement>(null);
+
+  /**
+   * Read from the sentence the phrase was selected from.
+   *
+   * Computed from the name as first selected, not as currently typed: a
+   * suggestion that re-derived on every keystroke would move the highlighted
+   * category around underneath someone mid-edit.
+   */
+  const suggestion = useMemo(
+    () => (context ? inferEntityType(initialName, context) : null),
+    [context, initialName],
+  );
+
+  const suggestedType = useMemo(
+    () =>
+      suggestion
+        ? entityTypes.find((t) => t.themeKey === suggestion.themeKey && !t.hidden)
+        : undefined,
+    [suggestion, entityTypes],
+  );
+
+  /** What is actually selected: the user's choice, else the guess. */
+  const typeId = chosenTypeId ?? suggestedType?.id ?? "";
+  const showingSuggestion = chosenTypeId === null && Boolean(suggestedType);
 
   useEffect(() => {
     nameInput.current?.focus();
@@ -132,12 +176,20 @@ export function CreateEntityDialog({
           <p className="mb-2 text-xs uppercase tracking-wider text-ink-faint">
             Category
           </p>
+          {/* Says what it read and where from, so a wrong guess is obvious
+              rather than a category that mysteriously selected itself. */}
+          {showingSuggestion && suggestedType && (
+            <p data-testid="type-suggestion" className="mb-2 text-xs text-ink-faint">
+              Suggested <span className="text-candle">{suggestedType.name}</span> — your
+              note calls it a “{suggestion?.evidence}”.
+            </p>
+          )}
           <div className="flex flex-wrap gap-2">
             {entityTypes.map((type) => (
               <button
                 key={type.id}
                 type="button"
-                onClick={() => setTypeId(type.id)}
+                onClick={() => setChosenTypeId(type.id)}
                 className={`rounded border px-2.5 py-1 text-sm transition-colors ${
                   typeId === type.id
                     ? "border-candle bg-candle/15 text-candle"
