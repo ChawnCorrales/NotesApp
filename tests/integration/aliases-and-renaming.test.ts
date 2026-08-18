@@ -217,3 +217,174 @@ describe("re-indexing", () => {
     expect((await getBacklinks(marrow.id)).map((n) => n.id)).toEqual([note.id]);
   });
 });
+
+/**
+ * What a merge must not lose.
+ *
+ * Everything that pointed at the source entity has to end up pointing at the
+ * target or be deliberately dropped. Anything left behind references a row that
+ * no longer exists, and the symptom is never an error — it is a collection that
+ * quietly has one fewer thing in it than the user put there.
+ *
+ * These only became reachable when merge got a button; before that the function
+ * was service-layer only.
+ */
+describe("merging keeps everything that pointed at the source", () => {
+  it("moves collection membership onto the surviving entity", async () => {
+    const { campaign, npcType } = fixture;
+    const keep = await createNpc(campaign.id, npcType.id, "Marrow");
+    const duplicate = await createNpc(campaign.id, npcType.id, "Old Marrow");
+
+    const { createCollection, addToCollection, getCollectionContents, mergeEntities } =
+      await import("@/lib/services");
+    const collection = await createCollection(campaign.id, "Red Queen Investigation");
+    await addToCollection({
+      collectionId: collection.id,
+      memberType: "entity",
+      memberId: duplicate.id,
+    });
+
+    await mergeEntities(duplicate.id, keep.id);
+
+    const contents = await getCollectionContents(collection.id);
+    expect(contents.entities.map((e) => e.id)).toEqual([keep.id]);
+  });
+
+  it("does not leave two memberships when both were in one collection", async () => {
+    const { campaign, npcType } = fixture;
+    const keep = await createNpc(campaign.id, npcType.id, "Marrow");
+    const duplicate = await createNpc(campaign.id, npcType.id, "Old Marrow");
+
+    const { createCollection, addToCollection, getCollectionContents, mergeEntities } =
+      await import("@/lib/services");
+    const collection = await createCollection(campaign.id, "Red Queen Investigation");
+    for (const memberId of [keep.id, duplicate.id]) {
+      await addToCollection({ collectionId: collection.id, memberType: "entity", memberId });
+    }
+
+    await mergeEntities(duplicate.id, keep.id);
+
+    expect((await getCollectionContents(collection.id)).entities).toHaveLength(1);
+    expect(await db.collectionMembers.count()).toBe(1);
+  });
+
+  it("leaves other collections alone", async () => {
+    const { campaign, npcType } = fixture;
+    const keep = await createNpc(campaign.id, npcType.id, "Marrow");
+    const duplicate = await createNpc(campaign.id, npcType.id, "Old Marrow");
+    const other = await createNpc(campaign.id, npcType.id, "Verena");
+
+    const { createCollection, addToCollection, getCollectionContents, mergeEntities } =
+      await import("@/lib/services");
+    const arc = await createCollection(campaign.id, "Arc");
+    const cast = await createCollection(campaign.id, "Cast");
+    await addToCollection({ collectionId: arc.id, memberType: "entity", memberId: duplicate.id });
+    await addToCollection({ collectionId: cast.id, memberType: "entity", memberId: other.id });
+
+    await mergeEntities(duplicate.id, keep.id);
+
+    expect((await getCollectionContents(arc.id)).entities.map((e) => e.id)).toEqual([keep.id]);
+    expect((await getCollectionContents(cast.id)).entities.map((e) => e.id)).toEqual([other.id]);
+  });
+
+  it("drops the source's mention suppressions rather than orphaning them", async () => {
+    const { campaign, npcType } = fixture;
+    const keep = await createNpc(campaign.id, npcType.id, "Marrow");
+    const duplicate = await createNpc(campaign.id, npcType.id, "Old Marrow");
+    const note = await createNoteWithText(campaign.id, "S1", "Old Marrow waits.");
+
+    const { suppressMention, mergeEntities } = await import("@/lib/services");
+    await suppressMention({
+      campaignId: campaign.id,
+      noteId: note.id,
+      entityId: duplicate.id,
+      occurrenceIndex: 0,
+    });
+
+    await mergeEntities(duplicate.id, keep.id);
+
+    // Kept, they would name an occurrence of an entity that no longer exists,
+    // and the target's occurrences are renumbered by the merge anyway.
+    expect(
+      await db.mentionSuppressions.where("entityId").equals(duplicate.id).count(),
+    ).toBe(0);
+  });
+
+  it("does not disturb the target's own suppressions", async () => {
+    const { campaign, npcType } = fixture;
+    const keep = await createNpc(campaign.id, npcType.id, "Marrow");
+    const duplicate = await createNpc(campaign.id, npcType.id, "Old Marrow");
+    const note = await createNoteWithText(campaign.id, "S1", "Marrow waits.");
+
+    const { suppressMention, mergeEntities } = await import("@/lib/services");
+    await suppressMention({
+      campaignId: campaign.id,
+      noteId: note.id,
+      entityId: keep.id,
+      occurrenceIndex: 0,
+    });
+
+    await mergeEntities(duplicate.id, keep.id);
+
+    expect(
+      await db.mentionSuppressions.where("entityId").equals(keep.id).count(),
+    ).toBe(1);
+  });
+});
+
+describe("deleting an entity", () => {
+  it("removes it and everything derived from it, leaving the notes alone", async () => {
+    const { campaign, npcType, locationType } = fixture;
+    const marrow = await createNpc(campaign.id, npcType.id, "Marrow");
+    const greyhaven = await createNpc(campaign.id, locationType.id, "Greyhaven");
+    await createRelationship({
+      campaignId: campaign.id,
+      sourceEntityId: marrow.id,
+      targetEntityId: greyhaven.id,
+      relationshipType: "works in",
+    });
+    const note = await createNoteWithText(campaign.id, "S1", "Marrow waits in Greyhaven.");
+
+    const { deleteEntity } = await import("@/lib/services");
+    await deleteEntity(marrow.id);
+
+    expect(await db.entities.get(marrow.id)).toBeUndefined();
+    expect(await db.entityMentions.where("entityId").equals(marrow.id).count()).toBe(0);
+    expect(await db.relationships.count()).toBe(0);
+
+    // The writing is untouched — the words stay, they just stop lighting up.
+    const stored = await db.notes.get(note.id);
+    expect(stored?.contentText).toBe("Marrow waits in Greyhaven.");
+    expect(await db.entities.get(greyhaven.id)).toBeTruthy();
+  });
+
+  it("removes it from collections", async () => {
+    const { campaign, npcType } = fixture;
+    const marrow = await createNpc(campaign.id, npcType.id, "Marrow");
+
+    const { createCollection, addToCollection, getCollectionContents, deleteEntity } =
+      await import("@/lib/services");
+    const collection = await createCollection(campaign.id, "Arc");
+    await addToCollection({
+      collectionId: collection.id,
+      memberType: "entity",
+      memberId: marrow.id,
+    });
+
+    await deleteEntity(marrow.id);
+
+    expect((await getCollectionContents(collection.id)).entities).toHaveLength(0);
+  });
+
+  it("stops the name being recognised in notes written afterwards", async () => {
+    const { campaign, npcType } = fixture;
+    const marrow = await createNpc(campaign.id, npcType.id, "Marrow");
+    await createNoteWithText(campaign.id, "S1", "Marrow waits.");
+
+    const { deleteEntity } = await import("@/lib/services");
+    await deleteEntity(marrow.id);
+    await reindexCampaign(campaign.id);
+
+    expect(await db.entityMentions.count()).toBe(0);
+  });
+});

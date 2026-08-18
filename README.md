@@ -49,6 +49,10 @@ browser.
 - Per-occurrence **"Not this entity"** correction, which never disables the entity
   elsewhere
 - Entity pages with descriptions, relationships, mentions and backlinks
+- **Merge duplicates** — fold one entity into another, keeping its mentions,
+  relationships and collections; the old name survives as an alias
+- **Delete an entity** behind a confirmation that names what goes with it. Your
+  notes keep every word — the name simply stops linking
 - Campaign-wide re-indexing, so flagging a name backlinks the notes you already wrote
 - Mind map with category filters and inferred co-occurrence edges
 - Search across note text, titles, entity names and aliases

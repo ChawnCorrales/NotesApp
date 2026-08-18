@@ -505,16 +505,31 @@ export async function removeAlias(aliasId: ID): Promise<void> {
  * so text that only ever used the old name still resolves. Relationships are
  * repointed and self-references dropped, which is what would otherwise appear
  * after merging two entities that were already related to each other.
+ *
+ * Everything that pointed at the source has to be dealt with, or the merge
+ * quietly loses something. Collection memberships are repointed — a collection
+ * that held "Old Marrow" means to hold Marrow — rather than left behind, where
+ * they would reference a deleted entity and the collection would simply appear
+ * to shrink. The source's mention suppressions are dropped instead: they name an
+ * occurrence of an entity that no longer exists, and the target's occurrences
+ * are renumbered by the merge, so carrying them over would reject the wrong
+ * words.
  */
 export async function mergeEntities(sourceId: ID, targetId: ID): Promise<void> {
   if (sourceId === targetId) return;
 
+  // The array form: Dexie's variadic overload stops at five tables, and this
+  // needs seven.
   await db.transaction(
     "rw",
-    db.entities,
-    db.entityAliases,
-    db.entityMentions,
-    db.relationships,
+    [
+      db.entities,
+      db.entityAliases,
+      db.entityMentions,
+      db.relationships,
+      db.mentionSuppressions,
+      db.collectionMembers,
+    ],
     async () => {
       const source = await db.entities.get(sourceId);
       if (!source) return;
@@ -551,6 +566,23 @@ export async function mergeEntities(sourceId: ID, targetId: ID): Promise<void> {
         .filter((r) => r.targetEntityId === targetId)
         .primaryKeys();
       await db.relationships.bulkDelete(selfLoops);
+
+      // Repointed one at a time so a collection holding both entities ends up
+      // with one membership rather than a duplicate row for the same thing.
+      const memberships = await db.collectionMembers
+        .where("[memberType+memberId]")
+        .equals(["entity", sourceId])
+        .toArray();
+      for (const membership of memberships) {
+        const alreadyThere = await db.collectionMembers
+          .where("[collectionId+memberType+memberId]")
+          .equals([membership.collectionId, "entity", targetId])
+          .first();
+        if (alreadyThere) await db.collectionMembers.delete(membership.id);
+        else await db.collectionMembers.update(membership.id, { memberId: targetId });
+      }
+
+      await db.mentionSuppressions.where("entityId").equals(sourceId).delete();
 
       await db.entities.delete(sourceId);
     },

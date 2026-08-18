@@ -14,12 +14,14 @@ import { useLiveQuery } from "dexie-react-hooks";
 import {
   addAlias,
   createRelationship,
+  deleteEntity,
   deleteRelationship,
   getBacklinks,
   getEntity,
   getEntityRelationships,
   listAliasesForEntity,
   listMentionsForEntity,
+  mergeEntities,
   removeAlias,
   renameEntity,
   updateEntity,
@@ -33,6 +35,18 @@ import type {
 import { useCampaign } from "./campaign-context";
 import { useNavigation } from "./navigation-context";
 import { AddToCollection } from "./AddToCollection";
+
+function describeLosses(notes: number, relationships: number, aliases: number): string {
+  const parts: string[] = [];
+  if (notes > 0) parts.push(`${notes} backlink${notes === 1 ? "" : "s"}`);
+  if (relationships > 0)
+    parts.push(`${relationships} relationship${relationships === 1 ? "" : "s"}`);
+  if (aliases > 0) parts.push(`${aliases} alias${aliases === 1 ? "" : "es"}`);
+  if (parts.length === 0) return "Nothing else refers to it.";
+  const last = parts.pop();
+  const list = parts.length > 0 ? `${parts.join(", ")} and ${last}` : last;
+  return `This removes its ${list}.`;
+}
 
 export function EntityPage({ entityId }: { entityId: string }) {
   const { entities, entityTypes, entityById, typeById } = useCampaign();
@@ -66,6 +80,9 @@ export function EntityPage({ entityId }: { entityId: string }) {
   );
 
   const [aliasDraft, setAliasDraft] = useState("");
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [merging, setMerging] = useState(false);
+  const [mergeTarget, setMergeTarget] = useState("");
   const [relationTarget, setRelationTarget] = useState("");
   const [relationType, setRelationType] = useState("");
 
@@ -96,6 +113,27 @@ export function EntityPage({ entityId }: { entityId: string }) {
     await addAlias(entityId, aliasDraft);
     setAliasDraft("");
   }, [aliasDraft, entityId]);
+
+  const relationshipCount =
+    relationships.outgoing.length + relationships.incoming.length;
+
+  /**
+   * Deleting leaves the campaign, so it has to navigate somewhere that still
+   * exists. The entity's own section is the closest thing to "where this was".
+   */
+  const handleDelete = useCallback(async () => {
+    if (!entity) return;
+    const sectionId = entity.entityTypeId;
+    await deleteEntity(entityId);
+    navigate({ kind: "section", entityTypeId: sectionId });
+  }, [entity, entityId, navigate]);
+
+  const handleMerge = useCallback(async () => {
+    if (!mergeTarget) return;
+    await mergeEntities(entityId, mergeTarget);
+    // The source is gone; following the survivor is the only sensible landing.
+    navigate({ kind: "entity", entityId: mergeTarget });
+  }, [entityId, mergeTarget, navigate]);
 
   const handleAddRelationship = useCallback(async () => {
     if (!entity || !relationTarget) return;
@@ -311,6 +349,106 @@ export function EntityPage({ entityId }: { entityId: string }) {
             Add
           </button>
         </div>
+      </section>
+
+      {/*
+        Merge sits above delete deliberately. The usual reason to want an entity
+        gone is that it duplicates another one, and deleting throws away every
+        mention and relationship it collected while merging keeps them. Offering
+        the destructive answer first would make it the obvious one.
+      */}
+      <section className="mt-8 border-t border-hair pt-5">
+        <h2 className="mb-2 text-xs uppercase tracking-wider text-ink-faint">
+          Manage
+        </h2>
+
+        {merging ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm text-ink-muted">
+              Fold {entity.name} into
+            </span>
+            <select
+              value={mergeTarget}
+              onChange={(e) => setMergeTarget(e.target.value)}
+              aria-label="Merge into"
+              className="rounded border border-hair bg-surface px-2 py-1 text-sm text-ink-muted"
+            >
+              <option value="">Select entity…</option>
+              {otherEntities.map((e) => (
+                <option key={e.id} value={e.id}>
+                  {e.name}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => void handleMerge()}
+              disabled={!mergeTarget}
+              className="rounded bg-candle/20 px-2.5 py-1 text-sm text-candle hover:bg-candle/30 disabled:opacity-40"
+            >
+              Merge
+            </button>
+            <button
+              type="button"
+              onClick={() => setMerging(false)}
+              className="rounded px-2 py-1 text-sm text-ink-muted hover:text-ink"
+            >
+              Cancel
+            </button>
+            <p className="w-full text-xs text-ink-faint">
+              “{entity.name}” becomes another name for it, and its mentions,
+              relationships and collections come along. Nothing is lost.
+            </p>
+          </div>
+        ) : confirmingDelete ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="w-full text-sm text-ink">
+              Delete {entity.name} for good?
+            </p>
+            <p className="w-full text-xs text-ink-muted">
+              {describeLosses(mentioningNotes.length, relationshipCount, aliases.length)}{" "}
+              Your notes keep every word — the name simply stops linking. This
+              cannot be undone.
+            </p>
+            <div className="mt-1 flex gap-2">
+              <button
+                type="button"
+                data-testid="confirm-delete-entity"
+                onClick={() => void handleDelete()}
+                className="rounded bg-blood/20 px-2.5 py-1 text-sm text-blood hover:bg-blood/30"
+              >
+                Yes, delete
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmingDelete(false)}
+                className="rounded px-2 py-1 text-sm text-ink-muted hover:text-ink"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              data-testid="merge-entity"
+              onClick={() => setMerging(true)}
+              disabled={otherEntities.length === 0}
+              className="rounded border border-hair px-2.5 py-1 text-sm text-ink-muted transition-colors hover:border-strong hover:text-ink disabled:opacity-40"
+            >
+              Merge into another entity…
+            </button>
+            <button
+              type="button"
+              data-testid="delete-entity"
+              onClick={() => setConfirmingDelete(true)}
+              className="rounded border border-hair px-2.5 py-1 text-sm text-ink-muted transition-colors hover:border-blood hover:text-blood"
+            >
+              Delete entity
+            </button>
+          </div>
+        )}
       </section>
 
       <section className="mt-6 pb-10">

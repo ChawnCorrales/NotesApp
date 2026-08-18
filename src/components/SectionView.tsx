@@ -107,6 +107,7 @@ export function SectionView({ entityTypeId }: { entityTypeId: string }) {
                 <button
                   type="button"
                   data-testid="section-entity"
+                  data-entity-name={entity.name}
                   onClick={() => navigate({ kind: "entity", entityId: entity.id })}
                   onAuxClick={(e) => {
                     if (e.button === 1) {

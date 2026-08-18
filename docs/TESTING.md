@@ -65,7 +65,8 @@ names an entity six times appears once — the count is notes, not occurrences.
 written earlier once the campaign reindexes. Renaming preserves the entity's
 identity, its relationships, and its backlinks. Removing an alias stops
 recognition through it without touching the entity or the note. Merging folds
-mentions, aliases, and relationships into the surviving entity.
+mentions, aliases, relationships and collection memberships into the surviving
+entity.
 
 **False-positive correction.** Marking one occurrence "not this entity" removes
 only that occurrence, leaves the entity matching everywhere else including
@@ -107,6 +108,16 @@ separately.
 
 **Graph.** Entities become nodes, stated relationships become edges, clicking a
 node opens that entity, and three aliases of one entity still produce one node.
+
+**Deleting and merging an entity.** Deleting is a hard delete with no trash, so
+the tests pin what survives it: the note text, every other entity, and the
+relationships that did not involve it. Merging is the opposite promise — nothing
+is lost — so its tests check the things most easily forgotten, which is exactly
+what they caught. Merge repointed mentions and relationships but left collection
+memberships and mention suppressions pointing at the entity it had just deleted.
+The collection symptom is silent: `getCollectionContents` filters out members it
+cannot resolve, so the collection simply appears to have one fewer thing in it
+than the user put there. Both were unreachable until merge got a button.
 
 **Type inference.** Guessing a category from "Ash is a god" is a pure function
 over text, so it is tested as one — no editor, no database. The suggestions are
