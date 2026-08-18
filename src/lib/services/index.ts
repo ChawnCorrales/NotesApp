@@ -96,6 +96,18 @@ export {
   getEntityCountsByType,
 } from "./repository";
 /**
+ * Category inference, including what this campaign has taught the app.
+ *
+ * `suggestEntityType` reads; `recordTypeHint` writes. Both are campaign-scoped,
+ * which is the whole design: there is no shared vocabulary being trained.
+ */
+export {
+  suggestEntityType,
+  recordTypeHint,
+  listTypeHints,
+  forgetTypeHint,
+} from "./repository";
+/**
  * Collections: conceptual bundles of notes *and* entities.
  *
  * Distinct from folders, which are storage. A note lives in one folder and may
@@ -189,6 +201,8 @@ export {
   type NoteSummary,
   type CollectionContents,
   type CollectionSummary,
+  type EntityTypeSuggestion,
+  type RecordTypeHintRequest,
   type Collection,
   type CollectionMemberType,
 } from "./contracts";

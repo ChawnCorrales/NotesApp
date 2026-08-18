@@ -19,6 +19,7 @@ import type {
   EntityAlias,
   EntityMention,
   EntityType,
+  EntityTypeHint,
   Folder,
   ID,
   Note,
@@ -44,12 +45,15 @@ import {
   type CreateRelationshipRequest,
   type EntityMentionCount,
   type EntityTypeCount,
+  type EntityTypeSuggestion,
   type ImportMarkdownRequest,
   type ImportOutcome,
+  type RecordTypeHintRequest,
   type Result,
   type SuppressMentionRequest,
   type UnsuppressMentionRequest,
 } from "./contracts";
+import { extractClassifier } from "../entities/type-inference";
 import { parseMarkdownDocument } from "../import/markdown";
 import { deriveTasksFromContent } from "../notes/derive";
 
@@ -824,6 +828,125 @@ export async function getSuppressionKeysForNote(
 ): Promise<ReadonlySet<string>> {
   const rows = await db.mentionSuppressions.where("noteId").equals(noteId).toArray();
   return new Set(rows.map((r) => suppressionKey(r.entityId, r.occurrenceIndex)));
+}
+
+/* ----------------------------------------------------------- type hints */
+
+/**
+ * Teaches this campaign that a noun means a category.
+ *
+ * Called after an entity is created from a sentence that classified it, with
+ * whatever category the user actually chose — so overriding a wrong guess
+ * teaches exactly as strongly as accepting a right one. That is the whole
+ * learning rule; there is no model and nothing statistical about it.
+ *
+ * Re-teaching the same pairing increments a count rather than adding a row.
+ * Teaching a *different* category for a noun already known resets the count to
+ * one: the user has changed their mind, and the new answer should win
+ * immediately rather than after out-voting the old one.
+ */
+export async function recordTypeHint({
+  campaignId,
+  noun,
+  entityTypeId,
+}: RecordTypeHintRequest): Promise<void> {
+  const key = noun.trim().toLowerCase();
+  if (!key) return;
+
+  await db.transaction("rw", db.entityTypeHints, async () => {
+    const existing = await db.entityTypeHints
+      .where("[campaignId+noun]")
+      .equals([campaignId, key])
+      .first();
+
+    if (!existing) {
+      await db.entityTypeHints.add({
+        id: newId(),
+        campaignId,
+        noun: key,
+        entityTypeId,
+        count: 1,
+        updatedAt: Date.now(),
+      });
+      return;
+    }
+
+    await db.entityTypeHints.update(existing.id, {
+      entityTypeId,
+      count: existing.entityTypeId === entityTypeId ? existing.count + 1 : 1,
+      updatedAt: Date.now(),
+    });
+  });
+}
+
+/** Everything this campaign has been taught, for inspection and tests. */
+export async function listTypeHints(campaignId: ID): Promise<EntityTypeHint[]> {
+  const hints = await db.entityTypeHints
+    .where("campaignId")
+    .equals(campaignId)
+    .toArray();
+  return hints.sort((a, b) => a.noun.localeCompare(b.noun));
+}
+
+/** Forgets one noun, so a bad lesson can be undone. */
+export async function forgetTypeHint(hintId: ID): Promise<void> {
+  await db.entityTypeHints.delete(hintId);
+}
+
+/**
+ * What category to propose for `name`, given the sentence around it.
+ *
+ * Two sources, and the campaign's own vocabulary wins. A GM who has filed three
+ * sanctums as Locations means something more specific by "sanctum" than a word
+ * list shipped with the app ever could, and an invented world's nouns are
+ * exactly what the built-in list cannot contain.
+ *
+ * The resolved category is re-checked against the campaign's live sections on
+ * every read rather than cleaned up when a section is deleted. A hint pointing
+ * at a section that no longer exists is then inert instead of proposing
+ * something that cannot be selected.
+ */
+export async function suggestEntityType(
+  campaignId: ID,
+  name: string,
+  context: string,
+): Promise<EntityTypeSuggestion | null> {
+  const found = extractClassifier(name, context);
+  if (!found) return null;
+
+  const types = await db.entityTypes
+    .where("campaignId")
+    .equals(campaignId)
+    .toArray();
+  const usable = new Map(types.filter((t) => !t.hidden).map((t) => [t.id, t]));
+
+  const learned = await db.entityTypeHints
+    .where("[campaignId+noun]")
+    .equals([campaignId, found.noun])
+    .first();
+
+  const base = { noun: found.noun, learnable: found.learnable };
+
+  if (learned && usable.has(learned.entityTypeId)) {
+    return { ...base, entityTypeId: learned.entityTypeId, source: "learned" };
+  }
+
+  const builtin = found.themeKey
+    ? types.find((t) => t.themeKey === found.themeKey && !t.hidden)
+    : undefined;
+
+  if (builtin) {
+    return { ...base, entityTypeId: builtin.id, source: "builtin" };
+  }
+
+  /**
+   * A noun with no category behind it.
+   *
+   * Returned rather than swallowed, because this is exactly the sentence the
+   * caller must learn from — "Ashgate is a sanctum" resolves to nothing the
+   * first time and to a Location every time after.
+   */
+  return { ...base, entityTypeId: null, source: "unknown" };
 }
 
 /* ------------------------------------------------------------ collections */

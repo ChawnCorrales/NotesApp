@@ -141,6 +141,19 @@ export interface CreateEntityTypeRequest {
   themeKey: string;
 }
 
+/**
+ * Teaches this campaign that a noun means a category.
+ *
+ * Sent after the user creates an entity from a sentence that classified it.
+ * The category is whatever they actually chose, which is why an override
+ * teaches just as strongly as an acceptance.
+ */
+export interface RecordTypeHintRequest {
+  campaignId: ID;
+  noun: string;
+  entityTypeId: ID;
+}
+
 export interface CollectionMemberRequest {
   collectionId: ID;
   memberType: CollectionMemberType;
@@ -194,6 +207,33 @@ export interface EntityTypeCount {
 export interface NoteSummary {
   noteId: ID;
   title: string;
+}
+
+/**
+ * What the note called a phrase, and what category that implies — if any.
+ *
+ * Resolved to a concrete `entityTypeId` rather than a themeKey, because a
+ * learned hint names a category directly and only the service can resolve the
+ * built-in guess against this campaign's sections.
+ *
+ * `entityTypeId` is null when the noun was found but means nothing yet: not in
+ * the built-in list, and never taught here. That is not an empty answer — it
+ * is the case the whole learning feature exists for, and the caller needs the
+ * noun in order to record what the user decides.
+ */
+export interface EntityTypeSuggestion {
+  /** The word in the note that prompted it, so the UI can say why. */
+  noun: string;
+  /** Null when neither this campaign nor the built-in list knows the noun. */
+  entityTypeId: ID | null;
+  source: "learned" | "builtin" | "unknown";
+  /**
+   * Whether the sentence asserts a classification worth remembering.
+   *
+   * False for "Marrow the Bold", which yields a word without claiming it is a
+   * kind of thing. Suggesting from it is harmless; learning from it is not.
+   */
+  learnable: boolean;
 }
 
 /** What a collection holds. */

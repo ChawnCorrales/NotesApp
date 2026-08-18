@@ -11,8 +11,14 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createEntity, addAlias } from "@/lib/services";
-import { inferEntityType } from "@/lib/entities/type-inference";
+import {
+  addAlias,
+  createEntity,
+  recordTypeHint,
+  suggestEntityType,
+  type EntityTypeSuggestion,
+} from "@/lib/services";
+import { useLiveQuery } from "dexie-react-hooks";
 import { useCampaign } from "./campaign-context";
 import { useNavigation } from "./navigation-context";
 
@@ -61,19 +67,27 @@ export function CreateEntityDialog({
   /**
    * Read from the sentence the phrase was selected from.
    *
-   * Computed from the name as first selected, not as currently typed: a
-   * suggestion that re-derived on every keystroke would move the highlighted
-   * category around underneath someone mid-edit.
+   * A query rather than a pure call, because the answer now depends on what
+   * this campaign has been taught — a noun the built-in list has never heard
+   * of still resolves if the GM has classified it before.
+   *
+   * Keyed on the name as first selected, not as currently typed: a suggestion
+   * re-derived on every keystroke would move the highlighted category around
+   * underneath someone mid-edit.
    */
-  const suggestion = useMemo(
-    () => (context ? inferEntityType(initialName, context) : null),
-    [context, initialName],
+  const suggestion = useLiveQuery(
+    () =>
+      context
+        ? suggestEntityType(campaignId, initialName, context)
+        : Promise.resolve<EntityTypeSuggestion | null>(null),
+    [campaignId, initialName, context],
+    null,
   );
 
   const suggestedType = useMemo(
     () =>
-      suggestion
-        ? entityTypes.find((t) => t.themeKey === suggestion.themeKey && !t.hidden)
+      suggestion?.entityTypeId
+        ? entityTypes.find((t) => t.id === suggestion.entityTypeId && !t.hidden)
         : undefined,
     [suggestion, entityTypes],
   );
@@ -113,12 +127,29 @@ export function CreateEntityDialog({
       if (initialName.trim() && initialName.trim() !== trimmed) {
         await addAlias(entity.id, initialName.trim());
       }
+
+      /**
+       * Teach the campaign what that noun means.
+       *
+       * Recorded against the category actually chosen, so overriding a wrong
+       * guess teaches exactly as strongly as accepting a right one — which is
+       * how "sanctum" becomes known without anybody editing a word list.
+       */
+      // Note the condition: a noun with no category yet is precisely the one
+      // worth learning, so this must not wait for a suggestion to exist.
+      if (suggestion?.learnable) {
+        await recordTypeHint({
+          campaignId,
+          noun: suggestion.noun,
+          entityTypeId: typeId,
+        });
+      }
       onClose();
       navigate({ kind: "entity", entityId: entity.id });
     } finally {
       setBusy(false);
     }
-  }, [name, typeId, busy, campaignId, initialName, onClose, navigate]);
+  }, [name, typeId, busy, campaignId, initialName, suggestion, onClose, navigate]);
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -181,7 +212,10 @@ export function CreateEntityDialog({
           {showingSuggestion && suggestedType && (
             <p data-testid="type-suggestion" className="mb-2 text-xs text-ink-faint">
               Suggested <span className="text-candle">{suggestedType.name}</span> — your
-              note calls it a “{suggestion?.evidence}”.
+              note calls it a “{suggestion?.noun}”
+              {suggestion?.source === "learned"
+                ? ", and that is where you filed the last one."
+                : "."}
             </p>
           )}
           <div className="flex flex-wrap gap-2">

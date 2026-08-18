@@ -119,6 +119,22 @@ The collection symptom is silent: `getCollectionContents` filters out members it
 cannot resolve, so the collection simply appears to have one fewer thing in it
 than the user put there. Both were unreachable until merge got a button.
 
+**Learned vocabulary.** The built-in word list cannot contain an invented
+world’s nouns, so the app records what the GM actually chose for a noun and
+reuses it. Three properties are pinned hard. A campaign’s own lesson beats the
+shipped word list. An *override* teaches as strongly as an acceptance, and takes
+effect immediately rather than after out-voting what came before — a correction
+is the clearest signal there is. And a lesson never leaves its campaign: one
+table’s sanctum is a Location, another’s is a Faction, and there is no global
+truth to discover.
+
+Writing that feature exposed a bug in the existing one. The create dialog was
+reading the note’s *persisted* text, and saving is debounced — so a phrase
+selected moments after typing it was classified against stale text, or in a new
+note against nothing at all. The browser tests had been passing on timing luck.
+The dialog now takes the live document, and those tests run three times faster
+because they are no longer waiting for a save they never should have needed.
+
 **Type inference.** Guessing a category from "Ash is a god" is a pure function
 over text, so it is tested as one — no editor, no database. The suggestions are
 the easy half; most of that file asserts what it *refuses* to guess. A wrong

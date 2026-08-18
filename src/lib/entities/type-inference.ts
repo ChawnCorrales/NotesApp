@@ -30,6 +30,21 @@ export interface TypeSuggestion {
 }
 
 /**
+ * What the sentence called the thing, and what the built-in list makes of it.
+ *
+ * `themeKey` is null for a noun the list has never heard of — which is not a
+ * failure but the interesting case: it is the word this campaign can teach
+ * the app. `learnable` is false for frames that produce a word without
+ * asserting it is a classification, so "Marrow the Bold" never teaches
+ * anything about "bold".
+ */
+export interface Classifier {
+  noun: string;
+  themeKey: string | null;
+  learnable: boolean;
+}
+
+/**
  * Nouns that identify a kind of thing.
  *
  * Deliberately a closed list of unambiguous words. Adding "master" or "keeper"
@@ -123,7 +138,10 @@ const CLAUSE_BOUNDARY = new Set([
  * phrase is cut at the first clause boundary before scanning, so "last word"
  * means the last word of *this* noun phrase.
  */
-function headNoun(phrase: string, anchor: "start" | "end"): TypeSuggestion | null {
+function headNoun(
+  phrase: string,
+  anchor: "start" | "end",
+): Omit<Classifier, "learnable"> | null {
   const all = phrase.toLowerCase().match(/[a-z']+/g) ?? [];
 
   /**
@@ -145,12 +163,23 @@ function headNoun(phrase: string, anchor: "start" | "end"): TypeSuggestion | nul
     words = all.slice(last + 1);
   }
 
+  if (words.length === 0) return null;
+
+  /**
+   * Two answers, not one.
+   *
+   * `themeKey` is the built-in guess and exists only for words in the lexicon.
+   * `noun` is what the sentence actually called the thing, lexicon or not — and
+   * that is the part worth remembering, because an unrecognised noun is exactly
+   * the case where the campaign can teach the app something the built-in list
+   * never knew.
+   */
   for (let i = words.length - 1; i >= 0; i--) {
     const word = words[i];
     const themeKey = LEXICON[word] ?? LEXICON[singular(word)];
-    if (themeKey) return { themeKey, evidence: word };
+    if (themeKey) return { noun: word, themeKey };
   }
-  return null;
+  return { noun: words[words.length - 1], themeKey: null };
 }
 
 /** Crude de-pluralisation; only used as a fallback after an exact miss. */
@@ -165,12 +194,16 @@ function singular(word: string): string {
 const WINDOW = 40;
 
 /**
- * Suggests what kind of thing `name` is, from `context`.
+ * Finds the noun the sentence uses to classify `name`.
  *
- * `context` should be the note's text; only the sentence containing the name is
- * consulted. Returns null whenever nothing matches confidently.
+ * `context` should be the note's text; only the sentence containing the name
+ * is consulted. Returns null whenever no frame matches — which is most
+ * sentences, and is the point.
+ *
+ * The noun comes back whether or not the built-in list recognises it. An
+ * unknown noun is not a miss; it is the word a campaign can teach.
  */
-export function inferEntityType(name: string, context: string): TypeSuggestion | null {
+export function extractClassifier(name: string, context: string): Classifier | null {
   const trimmed = name.trim();
   if (!trimmed || !context) return null;
 
@@ -196,41 +229,66 @@ export function inferEntityType(name: string, context: string): TypeSuggestion |
      * the epithet frame is last because "Marrow the Bold" is common and yields
      * nothing, which is the correct outcome.
      */
-    const frames: { re: RegExp; anchor: "start" | "end" }[] = [
+    const frames: {
+      re: RegExp;
+      anchor: "start" | "end";
+      /** Whether this frame asserts a classification worth remembering. */
+      learnable: boolean;
+    }[] = [
       // "the city of Greyhaven", "the Kingdom of Ash"
       {
         re: new RegExp(`\\b([a-z' ]{0,${WINDOW}}?)\\s+of\\s+${escaped}\\b`, "i"),
         anchor: "end",
+        learnable: true,
       },
       // "Marrow is a grizzled merchant", "Ash was the high priest"
       {
         re: new RegExp(`${escaped}\\s+(?:is|was|are|were)\\s+(?:a|an|the)?\\s*([a-z' ]{0,${WINDOW}})`, "i"),
         anchor: "start",
+        learnable: true,
       },
       // "Marrow, a merchant, waited"
       {
         re: new RegExp(`${escaped}\\s*,\\s*(?:a|an|the)\\s+([a-z' ]{0,${WINDOW}})`, "i"),
         anchor: "start",
+        learnable: true,
       },
       // "a merchant named Marrow", "the god called Ash"
       {
         re: new RegExp(`\\b(?:a|an|the)\\s+([a-z' ]{0,${WINDOW}}?)\\s+(?:named|called)\\s+${escaped}\\b`, "i"),
         anchor: "end",
+        learnable: true,
       },
       // "Marrow the Blacksmith"
       {
         re: new RegExp(`${escaped}\\s+the\\s+([a-z' ]{0,${WINDOW}})`, "i"),
         anchor: "start",
+        // "Marrow the Bold" yields "bold", which classifies nothing. Fine
+        // to shrug at, but never something to learn a rule from.
+        learnable: false,
       },
     ];
 
-    for (const { re, anchor } of frames) {
+    for (const { re, anchor, learnable } of frames) {
       const match = sentence.match(re);
       if (!match?.[1]) continue;
       const found = headNoun(match[1], anchor);
-      if (found) return found;
+      if (found) return { ...found, learnable };
     }
   }
 
   return null;
+}
+
+/**
+ * The built-in guess alone, with no campaign knowledge behind it.
+ *
+ * Kept as its own function because it is pure and total: same text in, same
+ * answer out, no database. That is what makes the rules cheap enough to test
+ * exhaustively, and it is where four real bugs surfaced before any of this ran
+ * in a browser. The learned layer sits on top in the service, never in here.
+ */
+export function inferEntityType(name: string, context: string): TypeSuggestion | null {
+  const found = extractClassifier(name, context);
+  return found?.themeKey ? { themeKey: found.themeKey, evidence: found.noun } : null;
 }
