@@ -73,7 +73,7 @@ export function safeFileName(name: string): string {
   // A name made only of the characters we substituted in is not a name — it
   // is what is left of one. "///" became "---", which is a legal file name
   // and a useless one.
-  if (!cleaned || !/[^s-]/.test(cleaned)) return "Untitled";
+  if (!cleaned || !/[^\s-]/.test(cleaned)) return "Untitled";
   if (/^(con|prn|aux|nul|com\d|lpt\d)$/i.test(cleaned)) return `${cleaned}_`;
   return cleaned.slice(0, 120);
 }

@@ -189,6 +189,18 @@ describe("file names", () => {
     expect(safeFileName("///")).toBe("Untitled");
   });
 
+  /**
+   * The guard rejects a name made only of whitespace and the dashes we
+   * substitute in. Written once as `[^s-]` — a lost backslash — it rejected
+   * any name made only of the letter "s" instead, so a note called "sss"
+   * exported as "Untitled.md". Nothing else in the suite would have noticed.
+   */
+  it("keeps a name made of letters the guard mentions", () => {
+    expect(safeFileName("sss")).toBe("sss");
+    expect(safeFileName("s")).toBe("s");
+    expect(safeFileName("Session s")).toBe("Session s");
+  });
+
   it("suffixes a collision rather than replacing it", () => {
     const taken = new Set<string>();
 
