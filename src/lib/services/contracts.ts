@@ -271,9 +271,20 @@ export interface ExportedFile {
   content: string;
 }
 
-/** Outcome of a Markdown import, which can partly succeed. */
+/**
+ * Outcome of a Markdown import, which can partly succeed.
+ *
+ * Entities and sections are reported separately from notes because they are
+ * things the user did not ask for by name — a file said `category: Monsters`
+ * and a section appeared. Creating it silently would be a surprise the next
+ * time they looked at the Canon.
+ */
 export interface ImportOutcome {
   imported: Note[];
+  /** Entities created from `type: entity` files. */
+  entities: Entity[];
+  /** Canon sections that had to be created to file those entities. */
+  sectionsCreated: string[];
   /** Files that could not be read or parsed, named so the UI can say which. */
   failed: { name: string; reason: string }[];
 }

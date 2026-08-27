@@ -36,7 +36,12 @@ browser.
 
 - Note authoring: rich text, Markdown input rules, tables, task checkboxes, links
 - **Markdown import** — bring in existing `.md` files; headings, tables, task lists
-  and links survive, and imported notes are recognised and backlinked immediately
+  and links survive, and imported notes are recognised and backlinked immediately.
+  A file with `type: entity` in its front matter creates an entity instead, so a
+  roster or bestiary can be written by hand — see [docs/FILE-FORMAT.md](docs/FILE-FORMAT.md)
+- **Markdown export** — one note, or the whole campaign as a `.zip` whose folders
+  mirror your sidebar. Recognised names are written as `[[wikilinks]]`, so your
+  connections come with you into Obsidian; importing strips them again
 - **Floating selection menu** — highlight a phrase and answer what it is without
   leaving the sentence: **Create entity**, **Link to existing** (names the phrase
   as another name for something you already have, everywhere), or **Ignore here**
@@ -68,6 +73,8 @@ browser.
 - Tags and favourites exist in the data model but have no UI.
 - Collection membership is manual only — nothing joins a collection by rule.
 - Conflict resolution, locked notes, and local-only notes: columns only.
+- Relationships and collections are not in the export format yet — a round trip
+  rebuilds mentions and backlinks, but not connections drawn by hand.
 - Everything the PRD defers to Phase 2+ (AI, semantic search, players, sharing).
 
 ## Getting started

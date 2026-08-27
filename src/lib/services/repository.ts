@@ -62,7 +62,7 @@ import {
   uniquePath,
   type ExportedFile,
 } from "../export/files";
-import { parseMarkdownDocument } from "../import/markdown";
+import { parseMarkdownFile, type ParsedEntity } from "../import/markdown";
 import { deriveTasksFromContent } from "../notes/derive";
 
 const EMPTY_SUPPRESSIONS: ReadonlySet<string> = new Set();
@@ -287,23 +287,117 @@ export async function importMarkdownNotes({
   campaignId,
   files,
 }: ImportMarkdownRequest): Promise<ImportOutcome> {
-  const recognizer = await buildCampaignRecognizer(campaignId);
   const imported: Note[] = [];
+  const entities: Entity[] = [];
+  const sectionsCreated: string[] = [];
   const failed: ImportOutcome["failed"] = [];
+
+  /**
+   * Canon sections by lowercased name, so a file saying `category: characters`
+   * finds the section called `Characters`.
+   */
+  const sections = new Map(
+    (await db.entityTypes.where("campaignId").equals(campaignId).toArray()).map(
+      (t) => [t.name.toLowerCase(), t],
+    ),
+  );
+
+  /**
+   * Finds the section a file asks for, creating it if this campaign has none.
+   *
+   * Rejecting the file instead would be the tidier rule and the less useful
+   * one: importing a bestiary that says `category: Monsters` should work, and
+   * the Canon is the user's to edit afterwards either way. Created sections are
+   * reported so the appearance is never silent.
+   */
+  async function sectionFor(name: string | undefined): Promise<EntityType> {
+    const wanted = name?.trim();
+    if (wanted) {
+      const existing = sections.get(wanted.toLowerCase());
+      if (existing) return existing;
+
+      const created = await createEntityType({
+        campaignId,
+        name: wanted,
+        icon: "◇",
+        themeKey: "concept",
+      });
+      sections.set(wanted.toLowerCase(), created);
+      sectionsCreated.push(created.name);
+      return created;
+    }
+
+    // No category given: anything already there beats inventing a section.
+    const first = [...sections.values()].sort((a, b) => a.sortOrder - b.sortOrder)[0];
+    if (first) return first;
+    return sectionFor("Concepts");
+  }
+
+  /** Folders by lowercased path, created on demand for a `folder:` key. */
+  const foldersByPath = new Map<string, Folder>();
+  for (const folder of await db.folders.where("campaignId").equals(campaignId).toArray()) {
+    foldersByPath.set(folder.name.toLowerCase(), folder);
+  }
+
+  async function folderFor(path: string | undefined): Promise<ID | null> {
+    const trimmed = path?.trim();
+    if (!trimmed) return null;
+
+    let parent: ID | null = null;
+    let walked = "";
+
+    for (const segment of trimmed.split("/").map((s) => s.trim()).filter(Boolean)) {
+      walked = walked ? `${walked}/${segment}` : segment;
+      const key = walked.toLowerCase();
+
+      const existing = foldersByPath.get(key);
+      if (existing) {
+        parent = existing.id;
+        continue;
+      }
+
+      const created = await createFolder(campaignId, segment, parent);
+      foldersByPath.set(key, created);
+      parent = created.id;
+    }
+
+    return parent;
+  }
+
+  async function addEntity(parsed: ParsedEntity): Promise<void> {
+    const section = await sectionFor(parsed.category);
+    const entity = await createEntity({
+      campaignId,
+      name: parsed.name,
+      entityTypeId: section.id,
+      description: parsed.description,
+    });
+
+    for (const alias of parsed.aliases) {
+      await addAlias(entity.id, alias);
+    }
+
+    entities.push(entity);
+  }
 
   for (const file of files) {
     try {
-      const parsed = parseMarkdownDocument(file.content, file.name);
+      const parsed = parseMarkdownFile(file.content, file.name);
 
-      const note = await createNote({ campaignId: campaignId,
-        title: parsed.title,
-        content: JSON.stringify(parsed.doc),
-        contentText: parsed.text,
+      if (parsed.kind === "entity") {
+        await addEntity(parsed.entity);
+        continue;
+      }
+
+      const note = await createNote({
+        campaignId,
+        title: parsed.note.title,
+        content: JSON.stringify(parsed.note.doc),
+        contentText: parsed.note.text,
+        folderId: await folderFor(parsed.note.folderPath),
       });
 
-      await syncMentionsForNote(note.id, campaignId, recognizer.findMatches(parsed.text));
-      await syncTasksForNote(note.id, campaignId, parsed.tasks);
-
+      await syncTasksForNote(note.id, campaignId, parsed.note.tasks);
       imported.push(note);
     } catch (error) {
       failed.push({
@@ -313,9 +407,20 @@ export async function importMarkdownNotes({
     }
   }
 
-  return { imported, failed };
-}
+  /**
+   * Mentions are indexed once at the end rather than per file.
+   *
+   * An import can create entities *and* the notes that mention them, in any
+   * order. Indexing as each note arrived would miss every entity defined in a
+   * later file — so a roster and a session log imported together would only
+   * link if the roster happened to sort first.
+   */
+  if (imported.length > 0 || entities.length > 0) {
+    await reindexCampaign(campaignId);
+  }
 
+  return { imported, entities, sectionsCreated, failed };
+}
 /* ---------------------------------------------------------------- folders */
 
 export async function createFolder(

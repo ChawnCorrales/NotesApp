@@ -19,6 +19,7 @@ import { Node as PMNode } from "@tiptap/pm/model";
 import { createContentExtensions } from "../editor/extensions";
 import { flattenDoc } from "../editor/doc-text";
 import { extractTasks, type ExtractedTask } from "../editor/tasks";
+import { field, fieldList, parseFrontMatter } from "../markdown/front-matter";
 
 export interface ParsedMarkdown {
   title: string;
@@ -30,7 +31,29 @@ export interface ParsedMarkdown {
   tasks: ExtractedTask[];
   /** Where the title came from, so the UI can explain itself if needed. */
   titleSource: "frontmatter" | "heading" | "filename";
+  /** Folder path from front matter, e.g. `Session Logs/Act One`. */
+  folderPath?: string;
 }
+
+/**
+ * An entity described by a file, rather than a note.
+ *
+ * Produced when front matter says `type: entity`. The body becomes the
+ * description as plain text: an entity has never held a document, and
+ * inventing one for it would mean two representations of the same field.
+ */
+export interface ParsedEntity {
+  name: string;
+  /** Canon section name as written; resolved against the campaign later. */
+  category?: string;
+  aliases: string[];
+  description: string;
+}
+
+/** What a file turned out to be. */
+export type ParsedFile =
+  | { kind: "note"; note: ParsedMarkdown }
+  | { kind: "entity"; entity: ParsedEntity };
 
 /**
  * `html: false` is a security decision, not a formatting one.
@@ -45,6 +68,24 @@ const md = new MarkdownIt({
   linkify: true,
   breaks: false,
 });
+
+/**
+ * `[[Marrow]]` and `[[Marrow|the shopkeeper]]`.
+ *
+ * Stripped to the text a reader would see, because this app does not store
+ * links — it recognises names. Leaving the brackets in would put punctuation
+ * into the user's prose that they never typed, and recognition would then
+ * fail to match "[[Marrow]]" against the entity "Marrow" anyway.
+ *
+ * The alias form keeps the display text, matching how Obsidian renders it.
+ */
+const WIKILINK = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
+
+export function stripWikilinks(source: string): string {
+  return source.replace(WIKILINK, (_, target: string, display?: string) =>
+    (display ?? target).trim(),
+  );
+}
 
 const FRONT_MATTER = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
 const TASK_MARKER = /^\[([ xX])\]\s+/;
@@ -148,7 +189,11 @@ export function parseMarkdownDocument(
   source: string,
   filename: string,
 ): ParsedMarkdown {
-  const { title: frontMatterTitle, body } = splitFrontMatter(source);
+  const fm = parseFrontMatter(source);
+  const frontMatterTitle = field(fm, "title");
+  // Brackets go before parsing, so the document never contains them and the
+  // flattened text matches what recognition will scan.
+  const body = stripWikilinks(fm.body);
 
   const html = md.render(body);
   const parsed = new DOMParser().parseFromString(`<body>${html}</body>`, "text/html");
@@ -182,5 +227,39 @@ export function parseMarkdownDocument(
   const node = PMNode.fromJSON(getSchema(extensions), doc);
   const text = flattenDoc(node).text;
 
-  return { title, doc, text, tasks: extractTasks(node), titleSource };
+  return {
+    title,
+    doc,
+    text,
+    tasks: extractTasks(node),
+    titleSource,
+    folderPath: field(fm, "folder"),
+  };
+}
+
+/**
+ * Reads a file as whatever it says it is.
+ *
+ * `type: entity` is the only switch. A file without it is a note, which is
+ * what keeps every file that ever imported working — and what lets someone
+ * hand-write a roster by copying one block and changing the names.
+ */
+export function parseMarkdownFile(source: string, filename: string): ParsedFile {
+  const fm = parseFrontMatter(source);
+
+  if (field(fm, "type")?.toLowerCase() !== "entity") {
+    return { kind: "note", note: parseMarkdownDocument(source, filename) };
+  }
+
+  const name = field(fm, "name") ?? field(fm, "title") ?? titleFromFilename(filename);
+
+  return {
+    kind: "entity",
+    entity: {
+      name,
+      category: field(fm, "category"),
+      aliases: fieldList(fm, "aliases"),
+      description: stripWikilinks(fm.body).trim(),
+    },
+  };
 }
