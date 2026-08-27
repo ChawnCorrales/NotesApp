@@ -173,6 +173,14 @@ export {
 
 /* ----------------------------------------------------------------- import */
 export { importMarkdownNotes } from "./repository";
+/**
+ * Export: the same material as files.
+ *
+ * Returns file contents rather than triggering a download, so the operation
+ * stays something a server could answer and the browser-only part — a Blob and
+ * an anchor click — lives in the component.
+ */
+export { exportNote, exportCampaign } from "./repository";
 
 /* -------------------------------------------------------------- contracts */
 /**
@@ -201,6 +209,7 @@ export {
   type NoteSummary,
   type CollectionContents,
   type CollectionSummary,
+  type ExportedFile,
   type EntityTypeSuggestion,
   type RecordTypeHintRequest,
   type Collection,

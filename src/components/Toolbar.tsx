@@ -10,8 +10,10 @@
  */
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { createEntityType, createFolder, createNote } from "@/lib/services";
+import { createEntityType, createFolder, createNote, exportCampaign, exportNote } from "@/lib/services";
 import { useActiveEditor } from "@/lib/editor/active-editor";
+import { downloadText, downloadZip } from "@/lib/export/download";
+import { safeFileName } from "@/lib/export/files";
 import { useCampaign } from "./campaign-context";
 import { useNavigation } from "./navigation-context";
 import { CreateEntityDialog } from "./CreateEntityDialog";
@@ -32,7 +34,7 @@ export function Toolbar({
   onImportMarkdown,
 }: ToolbarProps) {
   const { campaign } = useCampaign();
-  const { navigate, homeView, setHomeView } = useNavigation();
+  const { current, navigate, homeView, setHomeView } = useNavigation();
   const editor = useActiveEditor();
 
   const [openMenu, setOpenMenu] = useState<string | null>(null);
@@ -57,6 +59,26 @@ export function Toolbar({
       window.removeEventListener("keydown", onKeyDown);
     };
   }, [openMenu]);
+
+  /**
+   * Exports the note currently open.
+   *
+   * Disabled rather than hidden when the open view is not a note, so the menu
+   * does not change shape as you move around the app.
+   */
+  const exportOpenNote = useCallback(async () => {
+    if (current.kind !== "note") return;
+    const file = await exportNote(current.noteId);
+    if (!file) return;
+    downloadText(file.path, file.content);
+  }, [current]);
+
+  /** Exports every live note and entity as a zip of Markdown files. */
+  const exportWholeCampaign = useCallback(async () => {
+    if (!campaign) return;
+    const files = await exportCampaign(campaign.id);
+    downloadZip(safeFileName(campaign.name) + ".zip", files);
+  }, [campaign]);
 
   const run = useCallback((action: () => void) => {
     setOpenMenu(null);
@@ -117,6 +139,15 @@ export function Toolbar({
           </Item>
           <Divider />
           <Item onClick={() => run(onImportMarkdown)}>Import Markdown…</Item>
+          <Item
+            disabled={current.kind !== "note"}
+            onClick={() => run(() => void exportOpenNote())}
+          >
+            Export this note…
+          </Item>
+          <Item onClick={() => run(() => void exportWholeCampaign())}>
+            Export campaign…
+          </Item>
         </Menu>
 
         <Menu

@@ -48,13 +48,10 @@ import type { JSONContent } from "@tiptap/core";
 import type { Entity, EntityAlias, Note } from "../db/types";
 import { renderFrontMatter } from "../markdown/front-matter";
 import { toMarkdown, type MarkdownOptions } from "./markdown";
+import type { ExportedFile } from "../services/contracts";
 
-/** A file ready to be written, with the path it should take inside an export. */
-export interface ExportedFile {
-  /** Relative path, using `/`, e.g. `Session Logs/Act One/Session 12.md`. */
-  path: string;
-  content: string;
-}
+export type { ExportedFile };
+
 
 /** Where entity files live inside a campaign export. */
 export const ENTITY_DIRECTORY = "Entities";
@@ -73,7 +70,10 @@ export function safeFileName(name: string): string {
     .trim()
     .replace(/[. ]+$/, "");
 
-  if (!cleaned) return "Untitled";
+  // A name made only of the characters we substituted in is not a name — it
+  // is what is left of one. "///" became "---", which is a legal file name
+  // and a useless one.
+  if (!cleaned || !/[^s-]/.test(cleaned)) return "Untitled";
   if (/^(con|prn|aux|nul|com\d|lpt\d)$/i.test(cleaned)) return `${cleaned}_`;
   return cleaned.slice(0, 120);
 }

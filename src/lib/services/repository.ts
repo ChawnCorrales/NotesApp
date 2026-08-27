@@ -54,6 +54,14 @@ import {
   type UnsuppressMentionRequest,
 } from "./contracts";
 import { extractClassifier } from "../entities/type-inference";
+import {
+  ENTITY_DIRECTORY,
+  entityToMarkdown,
+  noteToMarkdown,
+  safeFileName,
+  uniquePath,
+  type ExportedFile,
+} from "../export/files";
 import { parseMarkdownDocument } from "../import/markdown";
 import { deriveTasksFromContent } from "../notes/derive";
 
@@ -828,6 +836,120 @@ export async function getSuppressionKeysForNote(
 ): Promise<ReadonlySet<string>> {
   const rows = await db.mentionSuppressions.where("noteId").equals(noteId).toArray();
   return new Set(rows.map((r) => suppressionKey(r.entityId, r.occurrenceIndex)));
+}
+
+/* --------------------------------------------------------------- export */
+
+/**
+ * The folder path each folder id sits at, e.g. `Session Logs/Act One`.
+ *
+ * Built once per export rather than walked per note: a campaign with deep
+ * folders would otherwise re-walk the same ancestors for every note in them.
+ */
+async function folderPaths(campaignId: ID): Promise<Map<ID, string>> {
+  const folders = await db.folders.where("campaignId").equals(campaignId).toArray();
+  const byId = new Map(folders.map((f) => [f.id, f]));
+  const paths = new Map<ID, string>();
+
+  for (const folder of folders) {
+    const segments: string[] = [];
+    let current: Folder | undefined = folder;
+    const seen = new Set<ID>();
+
+    // The guard is not paranoia: the folder tree tests exist because data
+    // containing a cycle has to stay walkable rather than hang the app.
+    while (current && !seen.has(current.id)) {
+      seen.add(current.id);
+      segments.unshift(safeFileName(current.name));
+      current = current.parentFolderId ? byId.get(current.parentFolderId) : undefined;
+    }
+
+    paths.set(folder.id, segments.join("/"));
+  }
+
+  return paths;
+}
+
+/** One note as a Markdown file, wikilinked against the campaign's entities. */
+export async function exportNote(noteId: ID): Promise<ExportedFile | null> {
+  const note = await db.notes.get(noteId);
+  if (!note) return null;
+
+  const [recognizer, suppressed, paths] = await Promise.all([
+    buildCampaignRecognizer(note.campaignId),
+    getSuppressionKeysForNote(noteId),
+    folderPaths(note.campaignId),
+  ]);
+
+  const folderPath = note.folderId ? paths.get(note.folderId) : undefined;
+  const name = safeFileName(note.title || "Untitled note");
+
+  return {
+    path: `${name}.md`,
+    content: noteToMarkdown(note, { recognizer, suppressed, folderPath }),
+  };
+}
+
+/**
+ * Every live note and entity in a campaign, as files.
+ *
+ * Notes keep their folder structure so the archive looks like the sidebar;
+ * entities go in one directory, since they have no folder of their own. The
+ * `folder` key is written into each note's front matter as well as being
+ * implied by the path, so a re-import restores the tree even if someone has
+ * moved the files around in between.
+ *
+ * Trashed notes are left out. An export is what the user believes their
+ * campaign to be, and they have already said these are not part of it.
+ */
+export async function exportCampaign(campaignId: ID): Promise<ExportedFile[]> {
+  const [notes, entities, types, aliases, recognizer, paths] = await Promise.all([
+    listLiveNotes(campaignId),
+    db.entities.where("campaignId").equals(campaignId).toArray(),
+    db.entityTypes.where("campaignId").equals(campaignId).toArray(),
+    db.entityAliases.where("campaignId").equals(campaignId).toArray(),
+    buildCampaignRecognizer(campaignId),
+    folderPaths(campaignId),
+  ]);
+
+  const typeName = new Map(types.map((t) => [t.id, t.name]));
+  const aliasesByEntity = new Map<ID, typeof aliases>();
+  for (const alias of aliases) {
+    const list = aliasesByEntity.get(alias.entityId) ?? [];
+    list.push(alias);
+    aliasesByEntity.set(alias.entityId, list);
+  }
+
+  const taken = new Set<string>();
+  const files: ExportedFile[] = [];
+
+  for (const note of notes) {
+    const folderPath = note.folderId ? paths.get(note.folderId) : undefined;
+    const name = safeFileName(note.title || "Untitled note");
+    const directory = folderPath ? `${folderPath}/` : "";
+    const suppressed = await getSuppressionKeysForNote(note.id);
+
+    files.push({
+      path: uniquePath(taken, `${directory}${name}.md`),
+      content: noteToMarkdown(note, { recognizer, suppressed, folderPath }),
+    });
+  }
+
+  for (const entity of entities) {
+    files.push({
+      path: uniquePath(
+        taken,
+        `${ENTITY_DIRECTORY}/${safeFileName(entity.name)}.md`,
+      ),
+      content: entityToMarkdown(
+        entity,
+        typeName.get(entity.entityTypeId) ?? "Concepts",
+        aliasesByEntity.get(entity.id) ?? [],
+      ),
+    });
+  }
+
+  return files;
 }
 
 /* ----------------------------------------------------------- type hints */

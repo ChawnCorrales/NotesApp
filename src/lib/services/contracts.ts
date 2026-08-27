@@ -258,6 +258,19 @@ export interface CollectionSummary {
   entityCount: number;
 }
 
+/**
+ * One file produced by an export.
+ *
+ * Content rather than a Blob or a download, so the operation is answerable by
+ * a server and the browser-only part — packaging and saving — stays in the
+ * component that can actually do it.
+ */
+export interface ExportedFile {
+  /** Relative path inside the export, using `/`. */
+  path: string;
+  content: string;
+}
+
 /** Outcome of a Markdown import, which can partly succeed. */
 export interface ImportOutcome {
   imported: Note[];
