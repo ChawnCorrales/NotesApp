@@ -11,7 +11,14 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createEntity, addAlias } from "@/lib/services";
+import {
+  addAlias,
+  createEntity,
+  recordTypeHint,
+  suggestEntityType,
+  type EntityTypeSuggestion,
+} from "@/lib/services";
+import { useLiveQuery } from "dexie-react-hooks";
 import { useCampaign } from "./campaign-context";
 import { useNavigation } from "./navigation-context";
 
@@ -20,6 +27,13 @@ interface Props {
   initialName: string;
   /** Preselects a category, e.g. when creating from within a Canon section. */
   defaultTypeId?: string;
+  /**
+   * The text the name was selected from, used to guess a category.
+   *
+   * Absent when there is no surrounding writing to read — creating from a Canon
+   * section or the global + button — in which case nothing is guessed.
+   */
+  context?: string;
   onClose: () => void;
 }
 
@@ -27,16 +41,60 @@ export function CreateEntityDialog({
   campaignId,
   initialName,
   defaultTypeId,
+  context,
   onClose,
 }: Props) {
   const { entityTypes, entities } = useCampaign();
   const { navigate } = useNavigation();
 
   const [name, setName] = useState(initialName);
-  const [typeId, setTypeId] = useState<string>(defaultTypeId ?? "");
+  /**
+   * The category the user has actually clicked.
+   *
+   * `null` means "hasn't chosen", which is what lets the guess act as a default
+   * without ever overwriting a decision. Same shape as the draft-versus-stored
+   * pattern used for text fields elsewhere, and it avoids syncing a suggestion
+   * into state from an effect — the categories arrive from a live query, so
+   * that would mean a cascading render every time they resolved.
+   */
+  const [chosenTypeId, setChosenTypeId] = useState<string | null>(
+    defaultTypeId ?? null,
+  );
   const [busy, setBusy] = useState(false);
 
   const nameInput = useRef<HTMLInputElement>(null);
+
+  /**
+   * Read from the sentence the phrase was selected from.
+   *
+   * A query rather than a pure call, because the answer now depends on what
+   * this campaign has been taught — a noun the built-in list has never heard
+   * of still resolves if the GM has classified it before.
+   *
+   * Keyed on the name as first selected, not as currently typed: a suggestion
+   * re-derived on every keystroke would move the highlighted category around
+   * underneath someone mid-edit.
+   */
+  const suggestion = useLiveQuery(
+    () =>
+      context
+        ? suggestEntityType(campaignId, initialName, context)
+        : Promise.resolve<EntityTypeSuggestion | null>(null),
+    [campaignId, initialName, context],
+    null,
+  );
+
+  const suggestedType = useMemo(
+    () =>
+      suggestion?.entityTypeId
+        ? entityTypes.find((t) => t.id === suggestion.entityTypeId && !t.hidden)
+        : undefined,
+    [suggestion, entityTypes],
+  );
+
+  /** What is actually selected: the user's choice, else the guess. */
+  const typeId = chosenTypeId ?? suggestedType?.id ?? "";
+  const showingSuggestion = chosenTypeId === null && Boolean(suggestedType);
 
   useEffect(() => {
     nameInput.current?.focus();
@@ -69,12 +127,29 @@ export function CreateEntityDialog({
       if (initialName.trim() && initialName.trim() !== trimmed) {
         await addAlias(entity.id, initialName.trim());
       }
+
+      /**
+       * Teach the campaign what that noun means.
+       *
+       * Recorded against the category actually chosen, so overriding a wrong
+       * guess teaches exactly as strongly as accepting a right one — which is
+       * how "sanctum" becomes known without anybody editing a word list.
+       */
+      // Note the condition: a noun with no category yet is precisely the one
+      // worth learning, so this must not wait for a suggestion to exist.
+      if (suggestion?.learnable) {
+        await recordTypeHint({
+          campaignId,
+          noun: suggestion.noun,
+          entityTypeId: typeId,
+        });
+      }
       onClose();
       navigate({ kind: "entity", entityId: entity.id });
     } finally {
       setBusy(false);
     }
-  }, [name, typeId, busy, campaignId, initialName, onClose, navigate]);
+  }, [name, typeId, busy, campaignId, initialName, suggestion, onClose, navigate]);
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -132,12 +207,23 @@ export function CreateEntityDialog({
           <p className="mb-2 text-xs uppercase tracking-wider text-ink-faint">
             Category
           </p>
+          {/* Says what it read and where from, so a wrong guess is obvious
+              rather than a category that mysteriously selected itself. */}
+          {showingSuggestion && suggestedType && (
+            <p data-testid="type-suggestion" className="mb-2 text-xs text-ink-faint">
+              Suggested <span className="text-candle">{suggestedType.name}</span> — your
+              note calls it a “{suggestion?.noun}”
+              {suggestion?.source === "learned"
+                ? ", and that is where you filed the last one."
+                : "."}
+            </p>
+          )}
           <div className="flex flex-wrap gap-2">
             {entityTypes.map((type) => (
               <button
                 key={type.id}
                 type="button"
-                onClick={() => setTypeId(type.id)}
+                onClick={() => setChosenTypeId(type.id)}
                 className={`rounded border px-2.5 py-1 text-sm transition-colors ${
                   typeId === type.id
                     ? "border-candle bg-candle/15 text-candle"

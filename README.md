@@ -36,16 +36,28 @@ browser.
 
 - Note authoring: rich text, Markdown input rules, tables, task checkboxes, links
 - **Markdown import** — bring in existing `.md` files; headings, tables, task lists
-  and links survive, and imported notes are recognised and backlinked immediately
+  and links survive, and imported notes are recognised and backlinked immediately.
+  A file with `type: entity` in its front matter creates an entity instead, so a
+  roster or bestiary can be written by hand — see [docs/FILE-FORMAT.md](docs/FILE-FORMAT.md)
+- **Markdown export** — one note, or the whole campaign as a `.zip` whose folders
+  mirror your sidebar. Recognised names are written as `[[wikilinks]]`, so your
+  connections come with you into Obsidian; importing strips them again
 - **Floating selection menu** — highlight a phrase and answer what it is without
   leaving the sentence: **Create entity**, **Link to existing** (names the phrase
   as another name for something you already have, everywhere), or **Ignore here**
   when the app has recognised the wrong thing
+- **Category inference** — write "Ash is a god of the deep roads" and creating
+  Ash pre-selects Deities, saying which word it read. Always a suggestion, never
+  a decision; it stays silent when the sentence does not say
 - Create an entity from selected text, with custom categories and aliases
 - Automatic recognition of every later mention, including aliases
 - Per-occurrence **"Not this entity"** correction, which never disables the entity
   elsewhere
 - Entity pages with descriptions, relationships, mentions and backlinks
+- **Merge duplicates** — fold one entity into another, keeping its mentions,
+  relationships and collections; the old name survives as an alias
+- **Delete an entity** behind a confirmation that names what goes with it. Your
+  notes keep every word — the name simply stops linking
 - Campaign-wide re-indexing, so flagging a name backlinks the notes you already wrote
 - Mind map with category filters and inferred co-occurrence edges
 - Search across note text, titles, entity names and aliases
@@ -61,6 +73,8 @@ browser.
 - Tags and favourites exist in the data model but have no UI.
 - Collection membership is manual only — nothing joins a collection by rule.
 - Conflict resolution, locked notes, and local-only notes: columns only.
+- Relationships and collections are not in the export format yet — a round trip
+  rebuilds mentions and backlinks, but not connections drawn by hand.
 - Everything the PRD defers to Phase 2+ (AI, semantic search, players, sharing).
 
 ## Getting started

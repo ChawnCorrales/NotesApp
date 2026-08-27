@@ -65,7 +65,8 @@ names an entity six times appears once — the count is notes, not occurrences.
 written earlier once the campaign reindexes. Renaming preserves the entity's
 identity, its relationships, and its backlinks. Removing an alias stops
 recognition through it without touching the entity or the note. Merging folds
-mentions, aliases, and relationships into the surviving entity.
+mentions, aliases, relationships and collection memberships into the surviving
+entity.
 
 **False-positive correction.** Marking one occurrence "not this entity" removes
 only that occurrence, leaves the entity matching everywhere else including
@@ -107,6 +108,74 @@ separately.
 
 **Graph.** Entities become nodes, stated relationships become edges, clicking a
 node opens that entity, and three aliases of one entity still produce one node.
+
+**Deleting and merging an entity.** Deleting is a hard delete with no trash, so
+the tests pin what survives it: the note text, every other entity, and the
+relationships that did not involve it. Merging is the opposite promise — nothing
+is lost — so its tests check the things most easily forgotten, which is exactly
+what they caught. Merge repointed mentions and relationships but left collection
+memberships and mention suppressions pointing at the entity it had just deleted.
+The collection symptom is silent: `getCollectionContents` filters out members it
+cannot resolve, so the collection simply appears to have one fewer thing in it
+than the user put there. Both were unreachable until merge got a button.
+
+**Export and import, as one thing.** The serialiser is tested as a *round
+trip* rather than by comparing output to a fixture: a document is written,
+exported, imported, and compared to the original. That is what a GM relies on
+when they export a campaign they care about, and comparing against a fixture
+would only prove the exporter still agrees with itself.
+
+The headline case transplants a whole campaign into a fresh one — notes,
+folder tree, entities, categories, aliases — and checks the *connections* come
+back. Those are the thing most easily lost, because they were never stored:
+they have to be re-derived on the other side rather than carried across.
+
+Two things were sharpened after the fact. The first escaping tests used
+"5 * 3" and "[draft]", both of which survive unescaped — a lone asterisk is
+not emphasis and a bracket with no paren is not a link — so they passed
+against a build with escaping deleted. And the round trip only became
+meaningful once the test helper started writing a real document; it had only
+ever written flattened text, which nothing noticed until export read the
+document instead.
+
+One ordering rule is worth naming: mentions are indexed once at the end of an
+import, not per file. An import can create entities *and* the notes that
+mention them, in whatever order the file picker hands them over, so indexing
+as each note arrived would link only the notes that happened to sort after the
+roster.
+
+**Learned vocabulary.** The built-in word list cannot contain an invented
+world’s nouns, so the app records what the GM actually chose for a noun and
+reuses it. Three properties are pinned hard. A campaign’s own lesson beats the
+shipped word list. An *override* teaches as strongly as an acceptance, and takes
+effect immediately rather than after out-voting what came before — a correction
+is the clearest signal there is. And a lesson never leaves its campaign: one
+table’s sanctum is a Location, another’s is a Faction, and there is no global
+truth to discover.
+
+Writing that feature exposed a bug in the existing one. The create dialog was
+reading the note’s *persisted* text, and saving is debounced — so a phrase
+selected moments after typing it was classified against stale text, or in a new
+note against nothing at all. The browser tests had been passing on timing luck.
+The dialog now takes the live document, and those tests run three times faster
+because they are no longer waiting for a save they never should have needed.
+
+**Type inference.** Guessing a category from "Ash is a god" is a pure function
+over text, so it is tested as one — no editor, no database. The suggestions are
+the easy half; most of that file asserts what it *refuses* to guess. A wrong
+category that pre-selects itself and gets confirmed by someone not really reading
+is a mis-filed entity nobody notices, so abstaining is the behaviour under test:
+no classification in the sentence, a noun merely nearby, a classification
+belonging to a different sentence, an epithet that is not a kind of thing.
+
+Those tests earned their place immediately — four real bugs in the first
+implementation, including reading "Ash is a god of the deep roads" as a *road*
+and "a merchant before the war" as an *event*, both because the scan ran past the
+noun phrase into the following clause.
+
+The browser tests cover only what a browser can prove: that the note's text
+reaches the dialog, that the guess resolves to a category the campaign actually
+has, and that overriding it sticks.
 
 **The selection menu.** Selecting a phrase offers Create, Link to existing, and
 — only when the selection covers a recognised mention — Ignore. The tests assert

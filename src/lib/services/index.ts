@@ -96,6 +96,18 @@ export {
   getEntityCountsByType,
 } from "./repository";
 /**
+ * Category inference, including what this campaign has taught the app.
+ *
+ * `suggestEntityType` reads; `recordTypeHint` writes. Both are campaign-scoped,
+ * which is the whole design: there is no shared vocabulary being trained.
+ */
+export {
+  suggestEntityType,
+  recordTypeHint,
+  listTypeHints,
+  forgetTypeHint,
+} from "./repository";
+/**
  * Collections: conceptual bundles of notes *and* entities.
  *
  * Distinct from folders, which are storage. A note lives in one folder and may
@@ -161,6 +173,14 @@ export {
 
 /* ----------------------------------------------------------------- import */
 export { importMarkdownNotes } from "./repository";
+/**
+ * Export: the same material as files.
+ *
+ * Returns file contents rather than triggering a download, so the operation
+ * stays something a server could answer and the browser-only part — a Blob and
+ * an anchor click — lives in the component.
+ */
+export { exportNote, exportCampaign } from "./repository";
 
 /* -------------------------------------------------------------- contracts */
 /**
@@ -189,6 +209,9 @@ export {
   type NoteSummary,
   type CollectionContents,
   type CollectionSummary,
+  type ExportedFile,
+  type EntityTypeSuggestion,
+  type RecordTypeHintRequest,
   type Collection,
   type CollectionMemberType,
 } from "./contracts";

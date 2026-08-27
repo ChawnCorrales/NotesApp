@@ -286,3 +286,63 @@ describe("an empty legacy database", () => {
     expect(await db.campaigns.count()).toBe(0);
   });
 });
+
+/**
+ * Version 9 adds the table that holds what a campaign has taught the app.
+ *
+ * Purely additive — a new store, no change to any existing one — which is the
+ * cheapest migration to get right and still worth pinning. A user upgrading
+ * from any released version must arrive with their notes, entities,
+ * relationships and collections untouched, and with somewhere to put the first
+ * thing they teach it.
+ */
+describe.each(LEGACY_VERSIONS)("version 9 arrives cleanly from version %i", (from) => {
+  it("adds the hints table without disturbing anything", async () => {
+    const fixture = await migrateFrom(from);
+
+    const { listTypeHints, recordTypeHint, suggestEntityType } = await import(
+      "@/lib/services"
+    );
+
+    // The new table exists and starts empty: nothing was invented.
+    expect(await listTypeHints(fixture.campaignId)).toEqual([]);
+
+    // The data that mattered is still there.
+    expect(await listLiveNotes(fixture.campaignId)).toHaveLength(2);
+    expect(await db.entities.count()).toBeGreaterThan(0);
+
+    // And it is usable immediately.
+    const [type] = await db.entityTypes.toArray();
+    await recordTypeHint({
+      campaignId: fixture.campaignId,
+      noun: "sanctum",
+      entityTypeId: type.id,
+    });
+
+    expect(
+      (await suggestEntityType(fixture.campaignId, "Wyrdhold", "Wyrdhold is a sanctum."))
+        ?.entityTypeId,
+    ).toBe(type.id);
+  });
+});
+
+describe("the hints table across a repeated upgrade", () => {
+  it("keeps what was taught when the database is reopened", async () => {
+    const fixture = await migrateFrom(1);
+    const { listTypeHints, recordTypeHint } = await import("@/lib/services");
+
+    const [type] = await db.entityTypes.toArray();
+    await recordTypeHint({
+      campaignId: fixture.campaignId,
+      noun: "sanctum",
+      entityTypeId: type.id,
+    });
+
+    db.close();
+    await db.open();
+
+    const hints = await listTypeHints(fixture.campaignId);
+    expect(hints).toHaveLength(1);
+    expect(hints[0]).toMatchObject({ noun: "sanctum", entityTypeId: type.id, count: 1 });
+  });
+});

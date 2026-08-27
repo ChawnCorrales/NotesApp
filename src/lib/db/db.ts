@@ -18,6 +18,7 @@ import type {
   EntityAlias,
   EntityMention,
   EntityType,
+  EntityTypeHint,
   Favorite,
   Folder,
   MentionSuppression,
@@ -46,6 +47,7 @@ export class NotesAppDatabase extends Dexie {
   mentionSuppressions!: Table<MentionSuppression, string>;
   collections!: Table<Collection, string>;
   collectionMembers!: Table<CollectionMember, string>;
+  entityTypeHints!: Table<EntityTypeHint, string>;
 
   /**
    * `name` is a parameter so migration tests can stand up a database under the
@@ -226,6 +228,22 @@ export class NotesAppDatabase extends Dexie {
     this.version(8).stores({
       entityGroups: null,
       entityGroupMembers: null,
+    });
+
+    /**
+     * Nouns a campaign has taught the app to classify.
+     *
+     * Purely additive: a new table, no change to any existing one, so nothing
+     * already stored is read, rewritten or reindexed by this upgrade. That is
+     * the cheapest kind of migration to get right, and the only kind worth
+     * adding for a feature that is an optimisation on a guess.
+     *
+     * `[campaignId+noun]` is the lookup the create dialog performs, and it is
+     * also the uniqueness the writer relies on to increment rather than
+     * accumulate duplicate rows for the same word.
+     */
+    this.version(9).stores({
+      entityTypeHints: "id, campaignId, [campaignId+noun]",
     });
   }
 }

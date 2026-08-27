@@ -19,6 +19,7 @@ import type {
   EntityAlias,
   EntityMention,
   EntityType,
+  EntityTypeHint,
   Folder,
   ID,
   Note,
@@ -44,13 +45,24 @@ import {
   type CreateRelationshipRequest,
   type EntityMentionCount,
   type EntityTypeCount,
+  type EntityTypeSuggestion,
   type ImportMarkdownRequest,
   type ImportOutcome,
+  type RecordTypeHintRequest,
   type Result,
   type SuppressMentionRequest,
   type UnsuppressMentionRequest,
 } from "./contracts";
-import { parseMarkdownDocument } from "../import/markdown";
+import { extractClassifier } from "../entities/type-inference";
+import {
+  ENTITY_DIRECTORY,
+  entityToMarkdown,
+  noteToMarkdown,
+  safeFileName,
+  uniquePath,
+  type ExportedFile,
+} from "../export/files";
+import { parseMarkdownFile, type ParsedEntity } from "../import/markdown";
 import { deriveTasksFromContent } from "../notes/derive";
 
 const EMPTY_SUPPRESSIONS: ReadonlySet<string> = new Set();
@@ -275,23 +287,117 @@ export async function importMarkdownNotes({
   campaignId,
   files,
 }: ImportMarkdownRequest): Promise<ImportOutcome> {
-  const recognizer = await buildCampaignRecognizer(campaignId);
   const imported: Note[] = [];
+  const entities: Entity[] = [];
+  const sectionsCreated: string[] = [];
   const failed: ImportOutcome["failed"] = [];
+
+  /**
+   * Canon sections by lowercased name, so a file saying `category: characters`
+   * finds the section called `Characters`.
+   */
+  const sections = new Map(
+    (await db.entityTypes.where("campaignId").equals(campaignId).toArray()).map(
+      (t) => [t.name.toLowerCase(), t],
+    ),
+  );
+
+  /**
+   * Finds the section a file asks for, creating it if this campaign has none.
+   *
+   * Rejecting the file instead would be the tidier rule and the less useful
+   * one: importing a bestiary that says `category: Monsters` should work, and
+   * the Canon is the user's to edit afterwards either way. Created sections are
+   * reported so the appearance is never silent.
+   */
+  async function sectionFor(name: string | undefined): Promise<EntityType> {
+    const wanted = name?.trim();
+    if (wanted) {
+      const existing = sections.get(wanted.toLowerCase());
+      if (existing) return existing;
+
+      const created = await createEntityType({
+        campaignId,
+        name: wanted,
+        icon: "◇",
+        themeKey: "concept",
+      });
+      sections.set(wanted.toLowerCase(), created);
+      sectionsCreated.push(created.name);
+      return created;
+    }
+
+    // No category given: anything already there beats inventing a section.
+    const first = [...sections.values()].sort((a, b) => a.sortOrder - b.sortOrder)[0];
+    if (first) return first;
+    return sectionFor("Concepts");
+  }
+
+  /** Folders by lowercased path, created on demand for a `folder:` key. */
+  const foldersByPath = new Map<string, Folder>();
+  for (const folder of await db.folders.where("campaignId").equals(campaignId).toArray()) {
+    foldersByPath.set(folder.name.toLowerCase(), folder);
+  }
+
+  async function folderFor(path: string | undefined): Promise<ID | null> {
+    const trimmed = path?.trim();
+    if (!trimmed) return null;
+
+    let parent: ID | null = null;
+    let walked = "";
+
+    for (const segment of trimmed.split("/").map((s) => s.trim()).filter(Boolean)) {
+      walked = walked ? `${walked}/${segment}` : segment;
+      const key = walked.toLowerCase();
+
+      const existing = foldersByPath.get(key);
+      if (existing) {
+        parent = existing.id;
+        continue;
+      }
+
+      const created = await createFolder(campaignId, segment, parent);
+      foldersByPath.set(key, created);
+      parent = created.id;
+    }
+
+    return parent;
+  }
+
+  async function addEntity(parsed: ParsedEntity): Promise<void> {
+    const section = await sectionFor(parsed.category);
+    const entity = await createEntity({
+      campaignId,
+      name: parsed.name,
+      entityTypeId: section.id,
+      description: parsed.description,
+    });
+
+    for (const alias of parsed.aliases) {
+      await addAlias(entity.id, alias);
+    }
+
+    entities.push(entity);
+  }
 
   for (const file of files) {
     try {
-      const parsed = parseMarkdownDocument(file.content, file.name);
+      const parsed = parseMarkdownFile(file.content, file.name);
 
-      const note = await createNote({ campaignId: campaignId,
-        title: parsed.title,
-        content: JSON.stringify(parsed.doc),
-        contentText: parsed.text,
+      if (parsed.kind === "entity") {
+        await addEntity(parsed.entity);
+        continue;
+      }
+
+      const note = await createNote({
+        campaignId,
+        title: parsed.note.title,
+        content: JSON.stringify(parsed.note.doc),
+        contentText: parsed.note.text,
+        folderId: await folderFor(parsed.note.folderPath),
       });
 
-      await syncMentionsForNote(note.id, campaignId, recognizer.findMatches(parsed.text));
-      await syncTasksForNote(note.id, campaignId, parsed.tasks);
-
+      await syncTasksForNote(note.id, campaignId, parsed.note.tasks);
       imported.push(note);
     } catch (error) {
       failed.push({
@@ -301,9 +407,20 @@ export async function importMarkdownNotes({
     }
   }
 
-  return { imported, failed };
-}
+  /**
+   * Mentions are indexed once at the end rather than per file.
+   *
+   * An import can create entities *and* the notes that mention them, in any
+   * order. Indexing as each note arrived would miss every entity defined in a
+   * later file — so a roster and a session log imported together would only
+   * link if the roster happened to sort first.
+   */
+  if (imported.length > 0 || entities.length > 0) {
+    await reindexCampaign(campaignId);
+  }
 
+  return { imported, entities, sectionsCreated, failed };
+}
 /* ---------------------------------------------------------------- folders */
 
 export async function createFolder(
@@ -505,16 +622,31 @@ export async function removeAlias(aliasId: ID): Promise<void> {
  * so text that only ever used the old name still resolves. Relationships are
  * repointed and self-references dropped, which is what would otherwise appear
  * after merging two entities that were already related to each other.
+ *
+ * Everything that pointed at the source has to be dealt with, or the merge
+ * quietly loses something. Collection memberships are repointed — a collection
+ * that held "Old Marrow" means to hold Marrow — rather than left behind, where
+ * they would reference a deleted entity and the collection would simply appear
+ * to shrink. The source's mention suppressions are dropped instead: they name an
+ * occurrence of an entity that no longer exists, and the target's occurrences
+ * are renumbered by the merge, so carrying them over would reject the wrong
+ * words.
  */
 export async function mergeEntities(sourceId: ID, targetId: ID): Promise<void> {
   if (sourceId === targetId) return;
 
+  // The array form: Dexie's variadic overload stops at five tables, and this
+  // needs seven.
   await db.transaction(
     "rw",
-    db.entities,
-    db.entityAliases,
-    db.entityMentions,
-    db.relationships,
+    [
+      db.entities,
+      db.entityAliases,
+      db.entityMentions,
+      db.relationships,
+      db.mentionSuppressions,
+      db.collectionMembers,
+    ],
     async () => {
       const source = await db.entities.get(sourceId);
       if (!source) return;
@@ -551,6 +683,23 @@ export async function mergeEntities(sourceId: ID, targetId: ID): Promise<void> {
         .filter((r) => r.targetEntityId === targetId)
         .primaryKeys();
       await db.relationships.bulkDelete(selfLoops);
+
+      // Repointed one at a time so a collection holding both entities ends up
+      // with one membership rather than a duplicate row for the same thing.
+      const memberships = await db.collectionMembers
+        .where("[memberType+memberId]")
+        .equals(["entity", sourceId])
+        .toArray();
+      for (const membership of memberships) {
+        const alreadyThere = await db.collectionMembers
+          .where("[collectionId+memberType+memberId]")
+          .equals([membership.collectionId, "entity", targetId])
+          .first();
+        if (alreadyThere) await db.collectionMembers.delete(membership.id);
+        else await db.collectionMembers.update(membership.id, { memberId: targetId });
+      }
+
+      await db.mentionSuppressions.where("entityId").equals(sourceId).delete();
 
       await db.entities.delete(sourceId);
     },
@@ -792,6 +941,239 @@ export async function getSuppressionKeysForNote(
 ): Promise<ReadonlySet<string>> {
   const rows = await db.mentionSuppressions.where("noteId").equals(noteId).toArray();
   return new Set(rows.map((r) => suppressionKey(r.entityId, r.occurrenceIndex)));
+}
+
+/* --------------------------------------------------------------- export */
+
+/**
+ * The folder path each folder id sits at, e.g. `Session Logs/Act One`.
+ *
+ * Built once per export rather than walked per note: a campaign with deep
+ * folders would otherwise re-walk the same ancestors for every note in them.
+ */
+async function folderPaths(campaignId: ID): Promise<Map<ID, string>> {
+  const folders = await db.folders.where("campaignId").equals(campaignId).toArray();
+  const byId = new Map(folders.map((f) => [f.id, f]));
+  const paths = new Map<ID, string>();
+
+  for (const folder of folders) {
+    const segments: string[] = [];
+    let current: Folder | undefined = folder;
+    const seen = new Set<ID>();
+
+    // The guard is not paranoia: the folder tree tests exist because data
+    // containing a cycle has to stay walkable rather than hang the app.
+    while (current && !seen.has(current.id)) {
+      seen.add(current.id);
+      segments.unshift(safeFileName(current.name));
+      current = current.parentFolderId ? byId.get(current.parentFolderId) : undefined;
+    }
+
+    paths.set(folder.id, segments.join("/"));
+  }
+
+  return paths;
+}
+
+/** One note as a Markdown file, wikilinked against the campaign's entities. */
+export async function exportNote(noteId: ID): Promise<ExportedFile | null> {
+  const note = await db.notes.get(noteId);
+  if (!note) return null;
+
+  const [recognizer, suppressed, paths] = await Promise.all([
+    buildCampaignRecognizer(note.campaignId),
+    getSuppressionKeysForNote(noteId),
+    folderPaths(note.campaignId),
+  ]);
+
+  const folderPath = note.folderId ? paths.get(note.folderId) : undefined;
+  const name = safeFileName(note.title || "Untitled note");
+
+  return {
+    path: `${name}.md`,
+    content: noteToMarkdown(note, { recognizer, suppressed, folderPath }),
+  };
+}
+
+/**
+ * Every live note and entity in a campaign, as files.
+ *
+ * Notes keep their folder structure so the archive looks like the sidebar;
+ * entities go in one directory, since they have no folder of their own. The
+ * `folder` key is written into each note's front matter as well as being
+ * implied by the path, so a re-import restores the tree even if someone has
+ * moved the files around in between.
+ *
+ * Trashed notes are left out. An export is what the user believes their
+ * campaign to be, and they have already said these are not part of it.
+ */
+export async function exportCampaign(campaignId: ID): Promise<ExportedFile[]> {
+  const [notes, entities, types, aliases, recognizer, paths] = await Promise.all([
+    listLiveNotes(campaignId),
+    db.entities.where("campaignId").equals(campaignId).toArray(),
+    db.entityTypes.where("campaignId").equals(campaignId).toArray(),
+    db.entityAliases.where("campaignId").equals(campaignId).toArray(),
+    buildCampaignRecognizer(campaignId),
+    folderPaths(campaignId),
+  ]);
+
+  const typeName = new Map(types.map((t) => [t.id, t.name]));
+  const aliasesByEntity = new Map<ID, typeof aliases>();
+  for (const alias of aliases) {
+    const list = aliasesByEntity.get(alias.entityId) ?? [];
+    list.push(alias);
+    aliasesByEntity.set(alias.entityId, list);
+  }
+
+  const taken = new Set<string>();
+  const files: ExportedFile[] = [];
+
+  for (const note of notes) {
+    const folderPath = note.folderId ? paths.get(note.folderId) : undefined;
+    const name = safeFileName(note.title || "Untitled note");
+    const directory = folderPath ? `${folderPath}/` : "";
+    const suppressed = await getSuppressionKeysForNote(note.id);
+
+    files.push({
+      path: uniquePath(taken, `${directory}${name}.md`),
+      content: noteToMarkdown(note, { recognizer, suppressed, folderPath }),
+    });
+  }
+
+  for (const entity of entities) {
+    files.push({
+      path: uniquePath(
+        taken,
+        `${ENTITY_DIRECTORY}/${safeFileName(entity.name)}.md`,
+      ),
+      content: entityToMarkdown(
+        entity,
+        typeName.get(entity.entityTypeId) ?? "Concepts",
+        aliasesByEntity.get(entity.id) ?? [],
+      ),
+    });
+  }
+
+  return files;
+}
+
+/* ----------------------------------------------------------- type hints */
+
+/**
+ * Teaches this campaign that a noun means a category.
+ *
+ * Called after an entity is created from a sentence that classified it, with
+ * whatever category the user actually chose — so overriding a wrong guess
+ * teaches exactly as strongly as accepting a right one. That is the whole
+ * learning rule; there is no model and nothing statistical about it.
+ *
+ * Re-teaching the same pairing increments a count rather than adding a row.
+ * Teaching a *different* category for a noun already known resets the count to
+ * one: the user has changed their mind, and the new answer should win
+ * immediately rather than after out-voting the old one.
+ */
+export async function recordTypeHint({
+  campaignId,
+  noun,
+  entityTypeId,
+}: RecordTypeHintRequest): Promise<void> {
+  const key = noun.trim().toLowerCase();
+  if (!key) return;
+
+  await db.transaction("rw", db.entityTypeHints, async () => {
+    const existing = await db.entityTypeHints
+      .where("[campaignId+noun]")
+      .equals([campaignId, key])
+      .first();
+
+    if (!existing) {
+      await db.entityTypeHints.add({
+        id: newId(),
+        campaignId,
+        noun: key,
+        entityTypeId,
+        count: 1,
+        updatedAt: Date.now(),
+      });
+      return;
+    }
+
+    await db.entityTypeHints.update(existing.id, {
+      entityTypeId,
+      count: existing.entityTypeId === entityTypeId ? existing.count + 1 : 1,
+      updatedAt: Date.now(),
+    });
+  });
+}
+
+/** Everything this campaign has been taught, for inspection and tests. */
+export async function listTypeHints(campaignId: ID): Promise<EntityTypeHint[]> {
+  const hints = await db.entityTypeHints
+    .where("campaignId")
+    .equals(campaignId)
+    .toArray();
+  return hints.sort((a, b) => a.noun.localeCompare(b.noun));
+}
+
+/** Forgets one noun, so a bad lesson can be undone. */
+export async function forgetTypeHint(hintId: ID): Promise<void> {
+  await db.entityTypeHints.delete(hintId);
+}
+
+/**
+ * What category to propose for `name`, given the sentence around it.
+ *
+ * Two sources, and the campaign's own vocabulary wins. A GM who has filed three
+ * sanctums as Locations means something more specific by "sanctum" than a word
+ * list shipped with the app ever could, and an invented world's nouns are
+ * exactly what the built-in list cannot contain.
+ *
+ * The resolved category is re-checked against the campaign's live sections on
+ * every read rather than cleaned up when a section is deleted. A hint pointing
+ * at a section that no longer exists is then inert instead of proposing
+ * something that cannot be selected.
+ */
+export async function suggestEntityType(
+  campaignId: ID,
+  name: string,
+  context: string,
+): Promise<EntityTypeSuggestion | null> {
+  const found = extractClassifier(name, context);
+  if (!found) return null;
+
+  const types = await db.entityTypes
+    .where("campaignId")
+    .equals(campaignId)
+    .toArray();
+  const usable = new Map(types.filter((t) => !t.hidden).map((t) => [t.id, t]));
+
+  const learned = await db.entityTypeHints
+    .where("[campaignId+noun]")
+    .equals([campaignId, found.noun])
+    .first();
+
+  const base = { noun: found.noun, learnable: found.learnable };
+
+  if (learned && usable.has(learned.entityTypeId)) {
+    return { ...base, entityTypeId: learned.entityTypeId, source: "learned" };
+  }
+
+  const builtin = found.themeKey
+    ? types.find((t) => t.themeKey === found.themeKey && !t.hidden)
+    : undefined;
+
+  if (builtin) {
+    return { ...base, entityTypeId: builtin.id, source: "builtin" };
+  }
+
+  /**
+   * A noun with no category behind it.
+   *
+   * Returned rather than swallowed, because this is exactly the sentence the
+   * caller must learn from — "Ashgate is a sanctum" resolves to nothing the
+   * first time and to a Location every time after.
+   */
+  return { ...base, entityTypeId: null, source: "unknown" };
 }
 
 /* ------------------------------------------------------------ collections */

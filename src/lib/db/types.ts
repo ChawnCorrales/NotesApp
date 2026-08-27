@@ -125,6 +125,34 @@ export interface Entity {
   updatedAt: number;
 }
 
+/**
+ * A noun this campaign has been taught to classify.
+ *
+ * Written when the GM creates an entity from a sentence that called it
+ * something — "Ashgate is a sanctum" teaches that a sanctum is whatever
+ * category they picked. The built-in word list can never cover an invented
+ * world's vocabulary; this is how a campaign supplies its own.
+ *
+ * Scoped per campaign on purpose. One table's sanctum is a Location; another's
+ * is a Faction. There is no global truth to learn here, and pretending there
+ * is would make the feature wrong for everyone at once.
+ */
+export interface EntityTypeHint {
+  id: ID;
+  campaignId: ID;
+  /** Lowercased, e.g. "sanctum". */
+  noun: string;
+  entityTypeId: ID;
+  /**
+   * How many times this pairing has been confirmed.
+   *
+   * Kept so a noun the GM has classified twenty times is not overturned by a
+   * single stray choice, and so the count can break a tie later.
+   */
+  count: number;
+  updatedAt: number;
+}
+
 export interface EntityAlias {
   id: ID;
   entityId: ID;

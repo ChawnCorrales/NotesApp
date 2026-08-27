@@ -141,6 +141,19 @@ export interface CreateEntityTypeRequest {
   themeKey: string;
 }
 
+/**
+ * Teaches this campaign that a noun means a category.
+ *
+ * Sent after the user creates an entity from a sentence that classified it.
+ * The category is whatever they actually chose, which is why an override
+ * teaches just as strongly as an acceptance.
+ */
+export interface RecordTypeHintRequest {
+  campaignId: ID;
+  noun: string;
+  entityTypeId: ID;
+}
+
 export interface CollectionMemberRequest {
   collectionId: ID;
   memberType: CollectionMemberType;
@@ -196,6 +209,33 @@ export interface NoteSummary {
   title: string;
 }
 
+/**
+ * What the note called a phrase, and what category that implies — if any.
+ *
+ * Resolved to a concrete `entityTypeId` rather than a themeKey, because a
+ * learned hint names a category directly and only the service can resolve the
+ * built-in guess against this campaign's sections.
+ *
+ * `entityTypeId` is null when the noun was found but means nothing yet: not in
+ * the built-in list, and never taught here. That is not an empty answer — it
+ * is the case the whole learning feature exists for, and the caller needs the
+ * noun in order to record what the user decides.
+ */
+export interface EntityTypeSuggestion {
+  /** The word in the note that prompted it, so the UI can say why. */
+  noun: string;
+  /** Null when neither this campaign nor the built-in list knows the noun. */
+  entityTypeId: ID | null;
+  source: "learned" | "builtin" | "unknown";
+  /**
+   * Whether the sentence asserts a classification worth remembering.
+   *
+   * False for "Marrow the Bold", which yields a word without claiming it is a
+   * kind of thing. Suggesting from it is harmless; learning from it is not.
+   */
+  learnable: boolean;
+}
+
 /** What a collection holds. */
 export interface CollectionContents {
   notes: Note[];
@@ -218,9 +258,33 @@ export interface CollectionSummary {
   entityCount: number;
 }
 
-/** Outcome of a Markdown import, which can partly succeed. */
+/**
+ * One file produced by an export.
+ *
+ * Content rather than a Blob or a download, so the operation is answerable by
+ * a server and the browser-only part — packaging and saving — stays in the
+ * component that can actually do it.
+ */
+export interface ExportedFile {
+  /** Relative path inside the export, using `/`. */
+  path: string;
+  content: string;
+}
+
+/**
+ * Outcome of a Markdown import, which can partly succeed.
+ *
+ * Entities and sections are reported separately from notes because they are
+ * things the user did not ask for by name — a file said `category: Monsters`
+ * and a section appeared. Creating it silently would be a surprise the next
+ * time they looked at the Canon.
+ */
 export interface ImportOutcome {
   imported: Note[];
+  /** Entities created from `type: entity` files. */
+  entities: Entity[];
+  /** Canon sections that had to be created to file those entities. */
+  sectionsCreated: string[];
   /** Files that could not be read or parsed, named so the UI can say which. */
   failed: { name: string; reason: string }[];
 }

@@ -133,7 +133,22 @@ export async function writeNote(
   noteId: string,
   text: string,
 ): Promise<void> {
-  await db.notes.update(noteId, { contentText: text, updatedAt: Date.now() });
+  // Both fields, because that is what the editor stores. Writing only the
+  // flattened text left `content` empty, which no test noticed until export
+  // started reading the document rather than the text.
+  const doc = {
+    type: "doc",
+    content: text
+      .split(/\n+/)
+      .filter(Boolean)
+      .map((line) => ({ type: "paragraph", content: [{ type: "text", text: line }] })),
+  };
+
+  await db.notes.update(noteId, {
+    content: JSON.stringify(doc),
+    contentText: text,
+    updatedAt: Date.now(),
+  });
   const recognizer = await buildRecognizer(campaignId);
   await syncMentionsForNote(noteId, campaignId, recognizer.findMatches(text));
 }

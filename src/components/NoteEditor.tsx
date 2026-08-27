@@ -91,7 +91,18 @@ export function NoteEditor({ noteId }: { noteId: string }) {
    */
   const [titleDraft, setTitleDraft] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [pendingEntityName, setPendingEntityName] = useState<string | null>(null);
+  /**
+   * The phrase being promoted, plus the text it was selected from.
+   *
+   * The context is captured from the live document at the moment the dialog
+   * opens, not read back from the saved note. Saving is debounced, so a phrase
+   * selected seconds after typing it would otherwise be classified against
+   * stale text — or, in a brand new note, against nothing at all.
+   */
+  const [pendingEntity, setPendingEntity] = useState<{
+    name: string;
+    context: string;
+  } | null>(null);
   const [selection, setSelection] = useState<SelectionTarget | null>(null);
   const [popover, setPopover] = useState<MentionPopoverState | null>(null);
 
@@ -403,21 +414,29 @@ export function NoteEditor({ noteId }: { noteId: string }) {
       )}
 
       {/* Hidden while the create dialog is up, so the two do not stack. */}
-      {selection && !pendingEntityName && (
+      {selection && !pendingEntity && (
         <SelectionMenu
           target={selection}
-          onCreate={() => setPendingEntityName(selection.text)}
+          onCreate={() =>
+            setPendingEntity({
+              name: selection.text,
+              context: editor ? flattenDoc(editor.state.doc).text : note.contentText,
+            })
+          }
           onLink={(entityId) => void handleLink(entityId)}
           onIgnore={() => void handleIgnoreSelection()}
           onDismiss={() => setSelection(null)}
         />
       )}
 
-      {pendingEntityName && campaign && (
+      {pendingEntity && campaign && (
         <CreateEntityDialog
           campaignId={campaign.id}
-          initialName={pendingEntityName}
-          onClose={() => setPendingEntityName(null)}
+          initialName={pendingEntity.name}
+          // What the GM has written is where the category comes from — they
+          // have usually already said what the thing is.
+          context={pendingEntity.context}
+          onClose={() => setPendingEntity(null)}
         />
       )}
     </div>
