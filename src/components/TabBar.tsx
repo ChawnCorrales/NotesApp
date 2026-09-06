@@ -29,6 +29,8 @@ function staticLabel(view: View): Label {
       return { icon: "⌕", text: view.query || "Search" };
     case "collections":
       return { icon: "◫", text: "Collections" };
+    case "vocabulary":
+      return { icon: "❧", text: "Learned words" };
     // Without this a trash tab fell through to the default and read
     // "Campaign canon", which is a different view entirely.
     case "trash":
