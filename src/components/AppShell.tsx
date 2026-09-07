@@ -27,6 +27,7 @@ import { Sidebar } from "./Sidebar";
 import { TabBar } from "./TabBar";
 import { TasksView } from "./TasksView";
 import { TrashView } from "./TrashView";
+import { VocabularyView } from "./VocabularyView";
 import { Toolbar } from "./Toolbar";
 
 export function AppShell() {
@@ -140,6 +141,8 @@ function ActiveView({
       return <SectionView key={view.entityTypeId} entityTypeId={view.entityTypeId} />;
     case "collections":
       return <CollectionsView />;
+    case "vocabulary":
+      return <VocabularyView />;
     case "collection":
       // Keyed for the same reason as the editor: the local name and description
       // drafts must not follow the user to a different collection.

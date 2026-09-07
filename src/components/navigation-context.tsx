@@ -29,6 +29,7 @@ export type View =
   | { kind: "note"; noteId: string }
   | { kind: "entity"; entityId: string }
   | { kind: "collections" }
+  | { kind: "vocabulary" }
   | { kind: "collection"; collectionId: string }
   | { kind: "graph" }
   | { kind: "tasks" }

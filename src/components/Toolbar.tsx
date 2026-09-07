@@ -10,7 +10,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { createEntityType, createFolder, createNote, exportCampaign, exportNote } from "@/lib/services";
+import { createEntityType, createFolder, createNote, exportCampaign, exportNote, reindexCampaign } from "@/lib/services";
 import { useActiveEditor } from "@/lib/editor/active-editor";
 import { downloadText, downloadZip } from "@/lib/export/download";
 import { safeFileName } from "@/lib/export/files";
@@ -38,6 +38,8 @@ export function Toolbar({
   const editor = useActiveEditor();
 
   const [openMenu, setOpenMenu] = useState<string | null>(null);
+  /** Transient confirmation for actions with no visible result. */
+  const [notice, setNotice] = useState<string | null>(null);
   const [creatingEntity, setCreatingEntity] = useState(false);
   const [linkPrompt, setLinkPrompt] = useState(false);
   const barRef = useRef<HTMLDivElement>(null);
@@ -80,6 +82,19 @@ export function Toolbar({
     downloadZip(safeFileName(campaign.name) + ".zip", files);
   }, [campaign]);
 
+  /**
+   * Rebuilds the mention index for the whole campaign.
+   *
+   * Normally automatic — this is the repair tool. Both times this app
+   * appeared to lose data it was actually a stale or skipped index, so a way
+   * to force the rebuild is worth having somewhere findable.
+   */
+  const rebuildIndex = useCallback(async () => {
+    if (!campaign) return;
+    const count = await reindexCampaign(campaign.id);
+    setNotice(`Rebuilt ${count} ${count === 1 ? "mention" : "mentions"}.`);
+  }, [campaign]);
+
   const run = useCallback((action: () => void) => {
     setOpenMenu(null);
     action();
@@ -90,6 +105,12 @@ export function Toolbar({
     const note = await createNote({ campaignId: campaign.id });
     navigate({ kind: "note", noteId: note.id });
   }, [campaign, navigate]);
+
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(null), 4000);
+    return () => clearTimeout(timer);
+  }, [notice]);
 
   const toggleFullscreen = useCallback(() => {
     if (document.fullscreenElement) void document.exitFullscreen();
@@ -147,6 +168,10 @@ export function Toolbar({
           </Item>
           <Item onClick={() => run(() => void exportWholeCampaign())}>
             Export campaign…
+          </Item>
+          <Divider />
+          <Item onClick={() => run(() => void rebuildIndex())}>
+            Rebuild index
           </Item>
         </Menu>
 
@@ -212,6 +237,14 @@ export function Toolbar({
           </Item>
           <Item onClick={() => run(() => navigate({ kind: "graph" }))}>Mind map</Item>
           <Item onClick={() => run(() => navigate({ kind: "tasks" }))}>Tasks</Item>
+          <Item onClick={() => run(() => navigate({ kind: "collections" }))}>
+            Collections
+          </Item>
+          <Item onClick={() => run(() => navigate({ kind: "trash" }))}>Trash</Item>
+          <Divider />
+          <Item onClick={() => run(() => navigate({ kind: "vocabulary" }))}>
+            What this campaign has learned…
+          </Item>
           <Divider />
           <Item onClick={() => run(onToggleSidebar)}>
             {sidebarVisible ? "Hide sidebar" : "Show sidebar"}
@@ -269,6 +302,15 @@ export function Toolbar({
           <Divider />
           <Item onClick={() => run(onImportMarkdown)}>Markdown file…</Item>
         </Menu>
+
+        {/* Actions with no visible result say so, briefly. Rebuilding the
+            index changes nothing on screen when it works, which without this
+            is indistinguishable from the menu item doing nothing. */}
+        {notice && (
+          <span role="status" className="ml-auto pr-2 text-xs text-ink-faint">
+            {notice}
+          </span>
+        )}
       </div>
 
       {creatingEntity && campaign && (
