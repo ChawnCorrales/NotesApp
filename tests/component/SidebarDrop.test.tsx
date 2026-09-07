@@ -19,8 +19,8 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { CampaignProvider } from "@/components/campaign-context";
 import { NavigationProvider } from "@/components/navigation-context";
 import { Sidebar } from "@/components/Sidebar";
-import { getEntity } from "@/lib/services";
-import { DRAG_ENTITY, DRAG_FILE } from "@/lib/dnd";
+import { createCollection, getCollectionContents, getEntity } from "@/lib/services";
+import { DRAG_ENTITY, DRAG_NOTE } from "@/lib/dnd";
 import {
   createNpc,
   createTestCampaign,
@@ -92,7 +92,7 @@ describe("what a section offers to accept", () => {
     // can hold. Offering to take it and then doing nothing is worse than
     // refusing plainly.
     fireEvent.dragOver(target, {
-      dataTransfer: dragCarrying(DRAG_FILE, "some-note-id"),
+      dataTransfer: dragCarrying(DRAG_NOTE, "some-note-id"),
     });
 
     expect(isOffering(target)).toBe(false);
@@ -137,10 +137,33 @@ describe("what a section actually accepts", () => {
 
     renderSidebar();
     fireEvent.drop(await locations(), {
-      dataTransfer: dragCarrying(DRAG_FILE, "some-note-id"),
+      dataTransfer: dragCarrying(DRAG_NOTE, "some-note-id"),
     });
 
     // Nothing moved, and nothing threw trying.
     expect((await getEntity(marrow.id))?.entityTypeId).toBe(npcType.id);
+  });
+});
+
+describe("collections in the sidebar", () => {
+  /** The Red Queen row in the sidebar. */
+  async function row() {
+    const rows = await screen.findAllByTestId("sidebar-collection");
+    return rows.find((r) => r.getAttribute("data-collection-name") === "Red Queen")!;
+  }
+
+  it("adds a dropped entity", async () => {
+    const { campaign, npcType } = fixture;
+    const marrow = await createNpc(campaign.id, npcType.id, "Marrow");
+    const arc = await createCollection(campaign.id, "Red Queen");
+
+    renderSidebar();
+    fireEvent.drop(await row(), {
+      dataTransfer: dragCarrying(DRAG_ENTITY, marrow.id),
+    });
+
+    await waitFor(async () => {
+      expect((await getCollectionContents(arc.id)).entities).toHaveLength(1);
+    });
   });
 });

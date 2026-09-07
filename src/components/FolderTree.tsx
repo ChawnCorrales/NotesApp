@@ -32,7 +32,7 @@ import {
   validMoveTargets,
   type FolderNode,
 } from "@/lib/folders/tree";
-import { DRAG_FILE } from "@/lib/dnd";
+import { DRAG_FOLDER, DRAG_NOTE } from "@/lib/dnd";
 import { useCampaign } from "./campaign-context";
 import { useNavigation } from "./navigation-context";
 
@@ -48,9 +48,6 @@ type MoveRequest =
   | { kind: "note"; id: string; name: string }
   | null;
 
-/** Shared with the Canon so a note and an entity cannot be dropped on each
- * other's targets. See `lib/dnd.ts`. */
-const DRAG_MIME = DRAG_FILE;
 
 export function FolderTree() {
   const { campaign } = useCampaign();
@@ -336,7 +333,7 @@ function FolderRow({
         data-testid="folder-row"
         data-folder-name={folder.name}
         onDragStart={(e) => {
-          e.dataTransfer.setData(DRAG_MIME, folder.id);
+          e.dataTransfer.setData(DRAG_FOLDER, folder.id);
           onDragStart({ kind: "folder", id: folder.id });
         }}
         onDragOver={(e) => {
@@ -509,7 +506,7 @@ function NoteRow({
         data-testid="folder-note"
         data-note-title={title}
         onDragStart={(e) => {
-          e.dataTransfer.setData(DRAG_MIME, note.id);
+          e.dataTransfer.setData(DRAG_NOTE, note.id);
           onDragStart();
         }}
         style={{ paddingLeft: `${1.6 + depth * 0.75}rem` }}

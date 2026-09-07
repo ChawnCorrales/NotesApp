@@ -117,7 +117,12 @@ export function SectionView({ entityTypeId }: { entityTypeId: string }) {
                   draggable
                   onDragStart={(e) => {
                     e.dataTransfer.setData(DRAG_ENTITY, entity.id);
-                    e.dataTransfer.effectAllowed = "move";
+                    // Both, because an entity can be *moved* to another Canon
+                    // section or *copied* into a collection. Declaring only
+                    // "move" makes the browser cancel a copy drop outright,
+                    // before the target's handler is ever called — which is
+                    // exactly how this was found.
+                    e.dataTransfer.effectAllowed = "copyMove";
                   }}
                   onClick={() => navigate({ kind: "entity", entityId: entity.id })}
                   onAuxClick={(e) => {
