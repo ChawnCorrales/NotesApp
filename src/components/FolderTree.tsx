@@ -32,6 +32,7 @@ import {
   validMoveTargets,
   type FolderNode,
 } from "@/lib/folders/tree";
+import { DRAG_FILE } from "@/lib/dnd";
 import { useCampaign } from "./campaign-context";
 import { useNavigation } from "./navigation-context";
 
@@ -47,7 +48,9 @@ type MoveRequest =
   | { kind: "note"; id: string; name: string }
   | null;
 
-const DRAG_MIME = "application/x-notesapp";
+/** Shared with the Canon so a note and an entity cannot be dropped on each
+ * other's targets. See `lib/dnd.ts`. */
+const DRAG_MIME = DRAG_FILE;
 
 export function FolderTree() {
   const { campaign } = useCampaign();

@@ -15,9 +15,11 @@ import {
   createNote,
   listCollectionSummaries,
   listRecentNotes,
+  updateEntity,
   type CollectionSummary,
 } from "@/lib/services";
 import type { Note } from "@/lib/db/types";
+import { carries, DRAG_ENTITY } from "@/lib/dnd";
 import { accentVar } from "@/lib/theme/palette";
 import { useCampaign } from "./campaign-context";
 import { useNavigation } from "./navigation-context";
@@ -32,6 +34,8 @@ export function Sidebar() {
   const { current, navigate, openInNewTab } = useNavigation();
 
   const [query, setQuery] = useState("");
+  /** Section currently under a dragged entity, for the drop highlight. */
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
 
   const campaignId = campaign?.id;
 
@@ -154,10 +158,14 @@ export function Sidebar() {
               const active =
                 current.kind === "section" && current.entityTypeId === type.id;
 
+              const isDropTarget = dropTarget === type.id;
+
               return (
                 <button
                   key={type.id}
                   type="button"
+                  data-testid="sidebar-section"
+                  data-section-name={type.name}
                   onClick={() => navigate({ kind: "section", entityTypeId: type.id })}
                   onAuxClick={(e) => {
                     if (e.button === 1) {
@@ -165,10 +173,31 @@ export function Sidebar() {
                       openInNewTab({ kind: "section", entityTypeId: type.id });
                     }
                   }}
+                  /*
+                    Only entities. A note dragged from the folder tree carries a
+                    different type, so it is not a valid drop here and the
+                    browser says so rather than this handler having to.
+                  */
+                  onDragOver={(e) => {
+                    if (!carries(e, DRAG_ENTITY)) return;
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = "move";
+                    setDropTarget(type.id);
+                  }}
+                  onDragLeave={() => setDropTarget(null)}
+                  onDrop={(e) => {
+                    if (!carries(e, DRAG_ENTITY)) return;
+                    e.preventDefault();
+                    setDropTarget(null);
+                    const entityId = e.dataTransfer.getData(DRAG_ENTITY);
+                    if (entityId) void updateEntity(entityId, { entityTypeId: type.id });
+                  }}
                   className={`flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm transition-colors ${
-                    active
-                      ? "bg-raised text-candle"
-                      : "text-ink-muted hover:bg-raised hover:text-ink"
+                    isDropTarget
+                      ? "bg-candle/20 text-candle ring-1 ring-candle/60"
+                      : active
+                        ? "bg-raised text-candle"
+                        : "text-ink-muted hover:bg-raised hover:text-ink"
                   }`}
                 >
                   <span
