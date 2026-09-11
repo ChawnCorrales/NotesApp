@@ -124,3 +124,68 @@ test("a note dragged from the folder tree is not a valid drop", async ({ page })
     page.getByTestId("recent-notes").getByRole("button", { name: "Session 1", exact: true }),
   ).toBeVisible();
 });
+
+/**
+ * Dropping onto a collection instead of a section.
+ *
+ * The same gesture with a different meaning: a Canon section takes an entity
+ * *out* of wherever it was, a collection simply also holds it. These check that
+ * the second really is additive.
+ */
+function collectionCard(page: Page, name: string) {
+  return content(page).locator(`[data-collection-name="${name}"]`);
+}
+
+function collectionRow(page: Page, name: string) {
+  return sidebar(page).locator(`[data-collection-name="${name}"]`);
+}
+
+async function makeCollection(page: Page, name: string) {
+  await sidebar(page).getByRole("button", { name: "◫ All collections" }).click();
+  await content(page).getByLabel("New collection name").fill(name);
+  await content(page).getByRole("button", { name: "+ New" }).click();
+  // Creating opens it; go back to the browse-all view where the cards are.
+  await sidebar(page).getByRole("button", { name: "◫ All collections" }).click();
+  await expect(collectionCard(page, name)).toBeVisible();
+}
+
+test("a note can be dragged from Recent onto a collection card", async ({ page }) => {
+  await openApp(page);
+  await createNote(page, "Session 12");
+  await typeInEditor(page, "They met at dusk.");
+  await settle(page);
+
+  await makeCollection(page, "Red Queen");
+
+  const note = page.getByTestId("recent-notes").getByRole("button", {
+    name: "Session 12",
+    exact: true,
+  });
+  await note.dragTo(collectionCard(page, "Red Queen"));
+
+  await expect(collectionCard(page, "Red Queen")).toContainText("1 note");
+});
+
+test("an entity dropped on a collection stays in its Canon section", async ({
+  page,
+}) => {
+  await setUpMarrow(page);
+  await makeCollection(page, "Red Queen");
+
+  // Entities live in the section view, so the sidebar row is the target here.
+  await section(page, "Characters").click();
+
+  const row = collectionRow(page, "Red Queen");
+  // The sidebar scrolls. A target below the fold is not under the pointer, no
+  // matter what its drop handler says.
+  await row.scrollIntoViewIfNeeded();
+  await card(page, "Marrow").dragTo(row);
+
+  // Added to the collection...
+  await row.click();
+  await expect(content(page).getByTestId("collection-entity")).toHaveCount(1);
+
+  // ...and still a Character, because joining a collection is not a move.
+  await section(page, "Characters").click();
+  await expect(card(page, "Marrow")).toBeVisible();
+});

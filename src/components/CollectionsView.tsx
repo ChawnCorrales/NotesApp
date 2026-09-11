@@ -12,10 +12,12 @@
 import { useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import {
+  addToCollection,
   createCollection,
   listCollectionSummaries,
   type CollectionSummary,
 } from "@/lib/services";
+import { carriedType, DRAG_ENTITY, DRAG_NOTE } from "@/lib/dnd";
 import { accentVar } from "@/lib/theme/palette";
 import { useCampaign } from "./campaign-context";
 import { useNavigation } from "./navigation-context";
@@ -25,6 +27,18 @@ export function CollectionsView() {
   const { navigate, openInNewTab } = useNavigation();
 
   const [draft, setDraft] = useState("");
+  /** Collection currently under a drag, for the drop highlight. */
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
+
+  /**
+   * What a collection card accepts.
+   *
+   * Notes and entities, because a collection holds both — that is the whole
+   * point of it, and the reason it is not a folder. A folder dragged from the
+   * tree is not on this list: a collection groups things a GM is thinking
+   * about, and a folder is where files live.
+   */
+  const ACCEPTS = [DRAG_ENTITY, DRAG_NOTE] as const;
 
   const campaignId = campaign?.id;
 
@@ -52,7 +66,8 @@ export function CollectionsView() {
           <h1 className="text-2xl font-semibold text-ink">Collections</h1>
           <p className="mt-1 text-sm text-ink-faint">
             Bundles that cut across the Canon — a mystery, an arc, a session&rsquo;s
-            prep. Notes and entities can be in as many as you like.
+            prep. Notes and entities can be in as many as you like, and can be
+            dragged straight onto a card from the sidebar.
           </p>
         </div>
 
@@ -95,12 +110,39 @@ export function CollectionsView() {
                 <button
                   type="button"
                   data-testid="collection-card"
+                  data-collection-name={collection.name}
                   onClick={() =>
                     navigate({
                       kind: "collection",
                       collectionId: collection.collectionId,
                     })
                   }
+                  onDragOver={(e) => {
+                    if (!carriedType(e, ACCEPTS)) return;
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = "copy";
+                    setDropTarget(collection.collectionId);
+                  }}
+                  onDragLeave={() => setDropTarget(null)}
+                  onDrop={(e) => {
+                    const type = carriedType(e, ACCEPTS);
+                    if (!type) return;
+                    e.preventDefault();
+                    setDropTarget(null);
+
+                    const memberId = e.dataTransfer.getData(type);
+                    if (!memberId) return;
+                    /*
+                      Adding, not moving. A note keeps its folder and an entity
+                      keeps its Canon section — membership is an extra fact
+                      about them, which is why the cursor says copy.
+                    */
+                    void addToCollection({
+                      collectionId: collection.collectionId,
+                      memberType: type === DRAG_ENTITY ? "entity" : "note",
+                      memberId,
+                    });
+                  }}
                   onAuxClick={(e) => {
                     if (e.button === 1) {
                       e.preventDefault();
@@ -110,7 +152,11 @@ export function CollectionsView() {
                       });
                     }
                   }}
-                  className="flex h-full w-full flex-col items-start rounded-lg border border-hair bg-surface p-3 text-left transition-colors hover:border-strong hover:shadow-lg"
+                  className={`flex h-full w-full flex-col items-start rounded-lg border bg-surface p-3 text-left transition-colors ${
+                    dropTarget === collection.collectionId
+                      ? "border-candle ring-1 ring-candle/60"
+                      : "border-hair hover:border-strong hover:shadow-lg"
+                  }`}
                   style={{ boxShadow: `inset 3px 0 0 ${accent}` }}
                 >
                   <span className="truncate text-sm text-ink">

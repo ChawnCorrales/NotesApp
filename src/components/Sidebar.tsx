@@ -14,12 +14,13 @@ import { useLiveQuery } from "dexie-react-hooks";
 import {
   createNote,
   listCollectionSummaries,
+  addToCollection,
   listRecentNotes,
   updateEntity,
   type CollectionSummary,
 } from "@/lib/services";
 import type { Note } from "@/lib/db/types";
-import { carries, DRAG_ENTITY } from "@/lib/dnd";
+import { carriedType, carries, DRAG_ENTITY, DRAG_NOTE } from "@/lib/dnd";
 import { accentVar } from "@/lib/theme/palette";
 import { useCampaign } from "./campaign-context";
 import { useNavigation } from "./navigation-context";
@@ -36,6 +37,11 @@ export function Sidebar() {
   const [query, setQuery] = useState("");
   /** Section currently under a dragged entity, for the drop highlight. */
   const [dropTarget, setDropTarget] = useState<string | null>(null);
+  /** Collection currently under a drag. Separate, so only one lights up. */
+  const [collectionTarget, setCollectionTarget] = useState<string | null>(null);
+
+  /** A collection takes both kinds; a Canon section takes only entities. */
+  const COLLECTION_ACCEPTS = [DRAG_ENTITY, DRAG_NOTE] as const;
 
   const campaignId = campaign?.id;
 
@@ -134,6 +140,8 @@ export function Sidebar() {
                 key={note.id}
                 active={isActive("note", note.id)}
                 onClick={() => navigate({ kind: "note", noteId: note.id })}
+                dragType={DRAG_NOTE}
+                dragId={note.id}
               >
                 {note.title || "Untitled note"}
               </Item>
@@ -233,9 +241,33 @@ export function Sidebar() {
               key={collection.collectionId}
               type="button"
               data-testid="sidebar-collection"
+              data-collection-name={collection.name}
               onClick={() =>
                 navigate({ kind: "collection", collectionId: collection.collectionId })
               }
+              onDragOver={(e) => {
+                if (!carriedType(e, COLLECTION_ACCEPTS)) return;
+                e.preventDefault();
+                // Copy, not move: joining a collection does not take a note
+                // out of its folder or an entity out of its section.
+                e.dataTransfer.dropEffect = "copy";
+                setCollectionTarget(collection.collectionId);
+              }}
+              onDragLeave={() => setCollectionTarget(null)}
+              onDrop={(e) => {
+                const type = carriedType(e, COLLECTION_ACCEPTS);
+                if (!type) return;
+                e.preventDefault();
+                setCollectionTarget(null);
+
+                const memberId = e.dataTransfer.getData(type);
+                if (!memberId) return;
+                void addToCollection({
+                  collectionId: collection.collectionId,
+                  memberType: type === DRAG_ENTITY ? "entity" : "note",
+                  memberId,
+                });
+              }}
               onAuxClick={(e) => {
                 if (e.button === 1) {
                   e.preventDefault();
@@ -246,10 +278,12 @@ export function Sidebar() {
                 }
               }}
               className={`flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm transition-colors ${
-                current.kind === "collection" &&
-                current.collectionId === collection.collectionId
-                  ? "bg-raised text-candle"
-                  : "text-ink-muted hover:bg-raised hover:text-ink"
+                collectionTarget === collection.collectionId
+                  ? "bg-candle/20 text-candle ring-1 ring-candle/60"
+                  : current.kind === "collection" &&
+                      current.collectionId === collection.collectionId
+                    ? "bg-raised text-candle"
+                    : "text-ink-muted hover:bg-raised hover:text-ink"
               }`}
             >
               <span
@@ -298,16 +332,32 @@ function Item({
   onClick,
   active,
   indented,
+  dragType,
+  dragId,
 }: {
   children: React.ReactNode;
   onClick: () => void;
   active?: boolean;
   indented?: boolean;
+  /** Supplying both makes the row a drag source carrying that payload. */
+  dragType?: string;
+  dragId?: string;
 }) {
+  const draggable = Boolean(dragType && dragId);
+
   return (
     <button
       type="button"
       onClick={onClick}
+      draggable={draggable}
+      onDragStart={
+        draggable
+          ? (e) => {
+              e.dataTransfer.setData(dragType!, dragId!);
+              e.dataTransfer.effectAllowed = "copyMove";
+            }
+          : undefined
+      }
       className={`block w-full truncate rounded px-2 py-1 text-left text-sm transition-colors ${
         indented ? "pl-7" : ""
       } ${
