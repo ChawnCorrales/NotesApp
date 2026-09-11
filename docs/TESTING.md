@@ -109,6 +109,16 @@ separately.
 **Graph.** Entities become nodes, stated relationships become edges, clicking a
 node opens that entity, and three aliases of one entity still produce one node.
 
+**Focus mode.** The PRD’s §17 example — “show only entities within two hops of
+Marrow” — is what keeps the map readable past a screenful of entities. The
+traversal rules are unit-tested because they are pure; the browser tests assert
+on how many nodes are *drawn*, since that is the whole promise.
+
+One rule is easy to get backwards: the walk runs over every edge, and the
+category filters apply to its result. Filtering first would let hiding
+Locations silently break the path between two Characters that runs through one,
+and the map would claim they are unconnected.
+
 **Deleting and merging an entity.** Deleting is a hard delete with no trash, so
 the tests pin what survives it: the note text, every other entity, and the
 relationships that did not involve it. Merging is the opposite promise — nothing

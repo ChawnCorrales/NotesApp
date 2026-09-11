@@ -60,6 +60,9 @@ browser.
   notes keep every word — the name simply stops linking
 - Campaign-wide re-indexing, so flagging a name backlinks the notes you already wrote
 - Mind map with category filters and inferred co-occurrence edges
+- **Focus the map** on one entity and everything within 1–3 relationship hops
+  of it — the difference between a map that works at 20 entities and one that
+  works at 200
 - Search across note text, titles, entity names and aliases
 - Command palette (`Ctrl`/`Cmd` + `K`) and Back/Forward history (`Alt` + `←`/`→`)
 - Local persistence in IndexedDB; occult default theme

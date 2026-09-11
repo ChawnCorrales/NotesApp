@@ -20,7 +20,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useLiveQuery } from "dexie-react-hooks";
-import { getCampaignGraph, type CampaignGraph } from "@/lib/services";
+import { getCampaignGraph, traverse, type CampaignGraph } from "@/lib/services";
 import { useCampaign } from "./campaign-context";
 import { useNavigation } from "./navigation-context";
 
@@ -65,6 +65,16 @@ export function GraphView() {
 
   const [hiddenTypes, setHiddenTypes] = useState<Set<string>>(new Set());
   const [showCoOccurrence, setShowCoOccurrence] = useState(true);
+  /**
+   * The entity the map is focused on, and how far out to follow it.
+   *
+   * The PRD's own example (§17) is "show only entities within two relationship
+   * hops of Marrow", and two is the default for the reason it is the example:
+   * one hop is usually too little to be interesting and three is usually most
+   * of the campaign again.
+   */
+  const [focusId, setFocusId] = useState<string | null>(null);
+  const [hops, setHops] = useState(2);
 
   const campaignId = campaign?.id;
 
@@ -84,11 +94,45 @@ export function GraphView() {
     { edges: [] } as CampaignGraph,
   );
 
-  const visibleEntities = useMemo(
-    () => entities.filter((e) => !hiddenTypes.has(e.entityTypeId)),
-    [entities, hiddenTypes],
+  /**
+   * Entities within `hops` of the focused one, or null when unfocused.
+   *
+   * Computed with `traverse` over the graph already in hand rather than
+   * `getNeighbourhood`, which would ask the database the same question again.
+   * The two are the same walk; the service version exists so a future HTTP
+   * client can ask for a neighbourhood without downloading the whole graph.
+   *
+   * The walk runs over *all* edges, not the visible ones: hiding Locations
+   * should not silently break the path between two Characters that runs
+   * through one. Category filters apply to the result, not to the search.
+   */
+  const focusedIds = useMemo(() => {
+    if (!focusId) return null;
+    return new Set(traverse(graph.edges, focusId, hops));
+  }, [graph.edges, focusId, hops]);
+
+  const focusedEntity = useMemo(
+    () => (focusId ? entities.find((e) => e.id === focusId) : undefined),
+    [entities, focusId],
   );
 
+  /**
+   * Focusing on something that has since been deleted would show an empty map
+   * with no way to tell why, so the focus is dropped instead.
+   */
+  const activeFocus = focusedEntity ? focusedIds : null;
+
+  const visibleEntities = useMemo(
+    () =>
+      entities
+        // The thing you focused on is always shown, even if its category is
+        // hidden. Asking for Marrow and being shown everything around him
+        // except Marrow reads as a bug, and the focus was the later and more
+        // specific instruction.
+        .filter((e) => e.id === focusId || !hiddenTypes.has(e.entityTypeId))
+        .filter((e) => !activeFocus || activeFocus.has(e.id)),
+    [entities, hiddenTypes, activeFocus, focusId],
+  );
   const nodes = useMemo<Node[]>(() => {
     const byType = new Map<string, string[]>();
     for (const entity of visibleEntities) {
@@ -198,10 +242,10 @@ export function GraphView() {
   /** Changes whenever the rendered graph differs — including entity renames. */
   const graphKey = useMemo(
     () =>
-      `${nodes.map((n) => `${n.id}:${String(n.data.label)}`).join("|")}#${edges
-        .map((e) => e.id)
-        .join("|")}`,
-    [nodes, edges],
+      `${focusId ?? "all"}@${hops}#${nodes
+        .map((n) => `${n.id}:${String(n.data.label)}`)
+        .join("|")}#${edges.map((e) => e.id).join("|")}`,
+    [nodes, edges, focusId, hops],
   );
 
   const toggleType = useCallback((typeId: string) => {
@@ -251,6 +295,76 @@ export function GraphView() {
           />
           Suggested connections
         </label>
+      </div>
+
+      {/*
+        Focus is its own row rather than another chip among the category
+        filters. Hiding a category subtracts from the map; focusing replaces
+        what the map is *of*, and reading as the same kind of control would
+        make that hard to notice.
+      */}
+      <div className="flex flex-wrap items-center gap-2 border-b border-hair px-6 py-2 text-xs">
+        <label className="flex items-center gap-2 text-ink-muted">
+          Focus on
+          <select
+            value={focusId ?? ""}
+            aria-label="Focus on an entity"
+            onChange={(e) => setFocusId(e.target.value || null)}
+            className="rounded border border-hair bg-surface px-2 py-1 text-xs text-ink-muted"
+          >
+            <option value="">the whole campaign</option>
+            {entities
+              .slice()
+              .sort((a, b) => a.name.localeCompare(b.name))
+              .map((e) => (
+                <option key={e.id} value={e.id}>
+                  {e.name}
+                </option>
+              ))}
+          </select>
+        </label>
+
+        {focusedEntity && (
+          <>
+            <span className="text-ink-faint">within</span>
+            <div className="flex items-center gap-1">
+              {[1, 2, 3].map((n) => (
+                <button
+                  key={n}
+                  type="button"
+                  data-testid={`hops-${n}`}
+                  aria-pressed={hops === n}
+                  onClick={() => setHops(n)}
+                  className={`rounded border px-2 py-0.5 transition-colors ${
+                    hops === n
+                      ? "border-candle text-candle"
+                      : "border-hair text-ink-faint hover:text-ink"
+                  }`}
+                >
+                  {n}
+                </button>
+              ))}
+            </div>
+            <span className="text-ink-faint">
+              {hops === 1 ? "hop" : "hops"}
+            </span>
+
+            {/* The count is the useful part: it says whether focusing
+                actually narrowed anything. */}
+            <span data-testid="focus-summary" className="text-ink-faint">
+              · showing {visibleEntities.length} of {entities.length}
+            </span>
+
+            <button
+              type="button"
+              data-testid="clear-focus"
+              onClick={() => setFocusId(null)}
+              className="ml-auto rounded border border-hair px-2 py-0.5 text-ink-muted transition-colors hover:border-strong hover:text-ink"
+            >
+              Show the whole map
+            </button>
+          </>
+        )}
       </div>
 
       <div className="flex-1">

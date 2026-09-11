@@ -199,3 +199,67 @@ describe("traversal", () => {
     expect(traverse(edges, "unknown", 3)).toEqual(["unknown"]);
   });
 });
+
+/**
+ * Traversal as the mind map's focus mode uses it.
+ *
+ * The view walks `traverse` over the whole edge set and then applies category
+ * filters to the result. These pin the properties that decision depends on —
+ * above all that a hidden category cannot break a path, because the walk never
+ * saw the filter in the first place.
+ */
+describe("focusing the map on one entity", () => {
+  /**
+   * Marrow — Greyhaven — Cult — Crown, with Verena hanging off Greyhaven and
+   * an unconnected island. A small campaign shaped like a real one.
+   */
+  const campaign: GraphEdge[] = [
+    { sourceEntityId: "marrow", targetEntityId: "greyhaven", kind: "stated" },
+    { sourceEntityId: "greyhaven", targetEntityId: "cult", kind: "stated" },
+    { sourceEntityId: "cult", targetEntityId: "crown", kind: "stated" },
+    { sourceEntityId: "verena", targetEntityId: "greyhaven", kind: "stated" },
+    { sourceEntityId: "island", targetEntityId: "islet", kind: "stated" },
+  ];
+
+  it("narrows a campaign to a neighbourhood", () => {
+    const near = traverse(campaign, "marrow", 2);
+
+    // The whole point: seven entities become four.
+    expect(near.sort()).toEqual(["cult", "greyhaven", "marrow", "verena"]);
+  });
+
+  it("widens as the hop count rises", () => {
+    expect(traverse(campaign, "marrow", 1)).toHaveLength(2);
+    expect(traverse(campaign, "marrow", 2)).toHaveLength(4);
+    expect(traverse(campaign, "marrow", 3)).toHaveLength(5);
+  });
+
+  it("stops widening once the component is exhausted", () => {
+    // Nothing beyond five is reachable, so more hops cannot add anything.
+    expect(traverse(campaign, "marrow", 9).sort()).toEqual(
+      traverse(campaign, "marrow", 4).sort(),
+    );
+  });
+
+  it("never reaches an unconnected part of the campaign", () => {
+    expect(traverse(campaign, "marrow", 9)).not.toContain("island");
+  });
+
+  /**
+   * Inference edges are part of the walk. A GM who has turned suggested
+   * connections off is saying they should not be *drawn*, not that two entities
+   * appearing together in six notes is no longer a connection.
+   */
+  it("follows inferred edges as well as stated ones", () => {
+    const withInference: GraphEdge[] = [
+      ...campaign,
+      { sourceEntityId: "crown", targetEntityId: "ash", kind: "inferred", sharedNotes: 4 },
+    ];
+
+    expect(traverse(withInference, "crown", 1).sort()).toEqual(["ash", "crown", "cult"]);
+  });
+
+  it("returns just the entity when it is connected to nothing", () => {
+    expect(traverse(campaign, "orphan", 2)).toEqual(["orphan"]);
+  });
+});
