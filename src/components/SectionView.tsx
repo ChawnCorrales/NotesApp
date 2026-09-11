@@ -11,15 +11,17 @@ import { useMemo, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import {
   getMentionCounts,
+  updateEntity,
   updateEntityType,
   type EntityMentionCount,
 } from "@/lib/services";
+import { DRAG_ENTITY } from "@/lib/dnd";
 import { useCampaign } from "./campaign-context";
 import { useNavigation } from "./navigation-context";
 import { CreateEntityDialog } from "./CreateEntityDialog";
 
 export function SectionView({ entityTypeId }: { entityTypeId: string }) {
-  const { campaign, entities, typeById } = useCampaign();
+  const { campaign, entities, entityTypes, typeById } = useCampaign();
   const { navigate, openInNewTab } = useNavigation();
 
   const [filter, setFilter] = useState("");
@@ -103,11 +105,20 @@ export function SectionView({ entityTypeId }: { entityTypeId: string }) {
           {members.map((entity) => {
             const count = mentionCounts.get(entity.id) ?? 0;
             return (
-              <li key={entity.id}>
+              <li
+                key={entity.id}
+                className="group relative rounded-lg border border-hair bg-surface transition-colors hover:border-strong hover:shadow-lg"
+                style={{ boxShadow: `inset 3px 0 0 ${accent}` }}
+              >
                 <button
                   type="button"
                   data-testid="section-entity"
                   data-entity-name={entity.name}
+                  draggable
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData(DRAG_ENTITY, entity.id);
+                    e.dataTransfer.effectAllowed = "move";
+                  }}
                   onClick={() => navigate({ kind: "entity", entityId: entity.id })}
                   onAuxClick={(e) => {
                     if (e.button === 1) {
@@ -115,8 +126,7 @@ export function SectionView({ entityTypeId }: { entityTypeId: string }) {
                       openInNewTab({ kind: "entity", entityId: entity.id });
                     }
                   }}
-                  className="flex w-full flex-col items-start rounded-lg border border-hair bg-surface p-3 text-left transition-colors hover:border-strong hover:shadow-lg"
-                  style={{ boxShadow: `inset 3px 0 0 ${accent}` }}
+                  className="flex w-full flex-col items-start p-3 pr-8 text-left"
                 >
                   <span className="truncate text-sm text-ink">{entity.name}</span>
                   <span className="mt-0.5 text-xs text-ink-faint">
@@ -125,6 +135,27 @@ export function SectionView({ entityTypeId }: { entityTypeId: string }) {
                       : `${count} ${count === 1 ? "note" : "notes"}`}
                   </span>
                 </button>
+
+                {/*
+                  The same move, reachable without a mouse.
+                  Dragging is the pleasant way to do this and the only way that
+                  is unavailable to a keyboard, a screen reader, or a touch
+                  screen — so the section list is also a control, sitting on the
+                  card rather than behind a visit to the entity's own page.
+                */}
+                <select
+                  value={entity.entityTypeId}
+                  aria-label={`Move ${entity.name} to another section`}
+                  onChange={(e) => void updateEntity(entity.id, { entityTypeId: e.target.value })}
+                  className="absolute right-1 top-1 w-6 cursor-pointer appearance-none rounded bg-transparent text-center text-xs text-ink-faint opacity-0 transition-opacity hover:text-ink focus:opacity-100 group-hover:opacity-100"
+                  title="Move to another section"
+                >
+                  {entityTypes.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
               </li>
             );
           })}
